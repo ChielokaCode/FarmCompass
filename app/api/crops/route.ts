@@ -1,0 +1,1 @@
+import { NextResponse } from "next/server";import { listCrops } from "@/lib/crops";export async function GET(){const crops=await listCrops();return NextResponse.json({crops:crops.map(({rawSource,...c})=>c)})}
