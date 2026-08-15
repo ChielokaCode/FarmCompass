@@ -1,7 +1,7 @@
 import type { FarmProfile, SoilIntelligence } from "@/types";
 
 const KAEGRO_ENDPOINT = "https://www.kaegro.com/farms/api/soil";
-const KAEGRO_TIMEOUT_MS = 30_000;
+const KAEGRO_TIMEOUT_MS = 45_000;
 
 type KaegroSoilResponse = {
   location?: {
@@ -53,57 +53,80 @@ function requireObject(value: unknown): KaegroSoilResponse {
   return value as KaegroSoilResponse;
 }
 
+/**
+ * Fetch Kaegro soil data for a farm coordinate.
+ *
+ * Important: this function deliberately awaits the HTTP response AND awaits
+ * the complete JSON body before the Kaegro response schema is read. Nothing
+ * is mapped into FarmCompass SoilIntelligence until the provider payload has
+ * been fully received.
+ */
 export async function getSoilIntelligence(latitude: number, longitude: number): Promise<SoilIntelligence> {
   const url = new URL(KAEGRO_ENDPOINT);
-  url.searchParams.set("lat", String(latitude));
-  url.searchParams.set("lon", String(longitude));
+  // Send ordinary decimal coordinates, matching the working Postman request.
+  url.searchParams.set("lat", latitude.toFixed(6));
+  url.searchParams.set("lon", longitude.toFixed(6));
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), KAEGRO_TIMEOUT_MS);
   const startedAt = Date.now();
 
   try {
-    console.info("[FarmCompass][Kaegro] Soil lookup started", {
+    console.info("[FarmCompass][Kaegro] Request prepared", {
+      method: "GET",
       url: url.toString(),
       latitude,
       longitude,
       timeoutMs: KAEGRO_TIMEOUT_MS
     });
 
-    const response = await fetch(url, {
+    console.info("[FarmCompass][Kaegro] Awaiting Kaegro HTTP response...");
+
+    const response = await fetch(url.toString(), {
       method: "GET",
       headers: {
-        accept: "application/json"
+        Accept: "application/json",
+        "User-Agent": "FarmCompass/1.0"
       },
       cache: "no-store",
       redirect: "follow",
       signal: controller.signal
     });
 
-    const contentType = response.headers.get("content-type") || "";
-    console.info("[FarmCompass][Kaegro] Soil lookup response", {
+    console.info("[FarmCompass][Kaegro] HTTP response received", {
       status: response.status,
       statusText: response.statusText,
       ok: response.ok,
-      contentType,
-      elapsedMs: Date.now() - startedAt,
+      contentType: response.headers.get("content-type"),
       redirected: response.redirected,
-      finalUrl: response.url
+      finalUrl: response.url,
+      elapsedMs: Date.now() - startedAt
     });
 
     if (!response.ok) {
-      const preview = (await response.text()).slice(0, 240).replace(/\s+/g, " ");
+      // Wait for the provider response body before throwing so the logs show
+      // the useful server error returned by Kaegro.
+      const errorBody = await response.text();
+      const preview = errorBody.slice(0, 500).replace(/\s+/g, " ");
+      console.error("[FarmCompass][Kaegro] Non-success response body", preview);
       throw new Error(`Kaegro soil service returned ${response.status}${preview ? `: ${preview}` : "."}`);
     }
 
-    if (!contentType.toLowerCase().includes("application/json")) {
-      const preview = (await response.text()).slice(0, 240).replace(/\s+/g, " ");
-      throw new Error(`Kaegro soil service returned a non-JSON response${preview ? `: ${preview}` : "."}`);
-    }
+    console.info("[FarmCompass][Kaegro] Awaiting complete JSON body...");
 
-    const data = requireObject(await response.json());
-    console.info("[FarmCompass][Kaegro] Raw soil payload", data);
-    console.info("[FarmCompass][Kaegro] Payload sections", {
+    // This await is intentional: do not inspect or map the Kaegro response
+    // until the full JSON body has been received and decoded.
+    const rawPayload: unknown = await response.json();
+
+    console.info("[FarmCompass][Kaegro] Complete JSON body received", {
+      elapsedMs: Date.now() - startedAt,
+      payload: rawPayload
+    });
+
+    // Only now do we apply/read the known Kaegro response schema.
+    const data = requireObject(rawPayload);
+
+    console.info("[FarmCompass][Kaegro] Applying Kaegro response schema", {
       topLevelKeys: Object.keys(data),
       hasLocation: Boolean(data.location),
       hasSoilType: Boolean(data.soil_type),
@@ -113,7 +136,6 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
       hasMeta: Boolean(data._meta)
     });
 
-    // Exact field mapping from the Kaegro /farms/api/soil response.
     const pH = finiteNumber(data.chemical?.ph_h2o);
     const soilType = text(data.soil_type?.texture_class);
     const faoClassification = text(data.soil_type?.fao_classification);
@@ -141,6 +163,12 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
     const providerLongitude = finiteNumber(data.location?.lon);
     const providerLatencySeconds = finiteNumber(data._meta?.latency_seconds);
 
+    // pH and texture are the two core fields FarmCompass expects from Kaegro.
+    // Fail loudly instead of silently storing an empty soil object.
+    if (pH == null && !soilType) {
+      throw new Error("Kaegro returned JSON, but neither chemical.ph_h2o nor soil_type.texture_class was present.");
+    }
+
     const attributes: Record<string, string | number | boolean | null> = {
       "Texture class": soilType,
       "FAO classification": faoClassification,
@@ -156,26 +184,7 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
       "Wilting point (vol %)": water.wiltingPointVolPercent
     };
 
-    console.info("[FarmCompass][Kaegro] Soil lookup parsed", {
-      providerLatitude,
-      providerLongitude,
-      pH,
-      soilType,
-      faoClassification,
-      sandPercent: physical.sandPercent,
-      siltPercent: physical.siltPercent,
-      clayPercent: physical.clayPercent,
-      bulkDensityGcm3: physical.bulkDensityGcm3,
-      organicMatterPercent: chemical.organicMatterPercent,
-      nitrogenGKg: chemical.nitrogenGKg,
-      cecCmolKg: chemical.cecCmolKg,
-      fieldCapacityVolPercent: water.fieldCapacityVolPercent,
-      wiltingPointVolPercent: water.wiltingPointVolPercent,
-      providerLatencySeconds,
-      elapsedMs: Date.now() - startedAt
-    });
-
-    return {
+    const soilIntelligence: SoilIntelligence = {
       schemaVersion: 2,
       source: "Kaegro Soil API",
       endpoint: KAEGRO_ENDPOINT,
@@ -191,6 +200,27 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
       attributes,
       fetchedAt: new Date().toISOString()
     };
+
+    console.info("[FarmCompass][Kaegro] Soil intelligence ready for persistence", {
+      providerLatitude: soilIntelligence.latitude,
+      providerLongitude: soilIntelligence.longitude,
+      pH: soilIntelligence.pH,
+      soilType: soilIntelligence.soilType,
+      faoClassification: soilIntelligence.faoClassification,
+      sandPercent: soilIntelligence.physical.sandPercent,
+      siltPercent: soilIntelligence.physical.siltPercent,
+      clayPercent: soilIntelligence.physical.clayPercent,
+      bulkDensityGcm3: soilIntelligence.physical.bulkDensityGcm3,
+      organicMatterPercent: soilIntelligence.chemical.organicMatterPercent,
+      nitrogenGKg: soilIntelligence.chemical.nitrogenGKg,
+      cecCmolKg: soilIntelligence.chemical.cecCmolKg,
+      fieldCapacityVolPercent: soilIntelligence.water.fieldCapacityVolPercent,
+      wiltingPointVolPercent: soilIntelligence.water.wiltingPointVolPercent,
+      providerLatencySeconds: soilIntelligence.providerLatencySeconds,
+      totalElapsedMs: Date.now() - startedAt
+    });
+
+    return soilIntelligence;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       console.error("[FarmCompass][Kaegro] Soil lookup timed out", {
@@ -202,6 +232,7 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
       });
       throw new Error(`Kaegro soil service did not respond within ${KAEGRO_TIMEOUT_MS / 1000} seconds.`);
     }
+
     console.error("[FarmCompass][Kaegro] Soil lookup failed", {
       url: url.toString(),
       latitude,

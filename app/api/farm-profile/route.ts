@@ -7,6 +7,8 @@ import { getClimateBaseline } from "@/lib/weather";
 import { getSoilIntelligence } from "@/lib/soil";
 import type { FarmProfile } from "@/types";
 
+export const maxDuration = 60;
+
 const optionalNumber = z.number().finite().nullable().optional();
 const optionalText = z.string().trim().max(500).nullable().optional();
 
@@ -101,40 +103,26 @@ export async function PUT(req: Request) {
         });
       }
 
-      const [climateResult, soilResult] = await Promise.allSettled([
-        needsClimate ? getClimateBaseline(body.latitude, body.longitude) : Promise.resolve(climateBaseline),
-        needsSoil ? getSoilIntelligence(body.latitude, body.longitude) : Promise.resolve(soilIntelligence)
-      ]);
-
-      if (needsClimate) {
-        if (climateResult.status === "fulfilled" && climateResult.value) {
-          climateBaseline = climateResult.value;
-          averageRainfallMm = climateBaseline.averageAnnualRainfallMm;
-          averageTemperatureC = climateBaseline.averageTemperatureC;
-        } else {
-          climateBaseline = null;
-          averageRainfallMm = null;
-          averageTemperatureC = null;
-          const reason = climateResult.status === "rejected" ? climateResult.reason : null;
-          climateWarning = reason instanceof Error
-            ? `Climate averages could not be refreshed: ${reason.message}`
-            : "Climate averages could not be refreshed.";
-        }
-      }
-
+      // Kaegro is intentionally awaited on its own. We do not continue to
+      // schema mapping/persistence until the provider response has been fully
+      // received and parsed by getSoilIntelligence().
       if (needsSoil) {
-        if (soilResult.status === "fulfilled" && soilResult.value) {
-          soilIntelligence = soilResult.value;
-          console.info("[FarmCompass][Kaegro] Farm profile soil lookup succeeded", {
+        try {
+          console.info("[FarmCompass][Kaegro] Awaiting soil intelligence before continuing farm-profile save", {
+            userId: auth.user.id,
+            latitude: body.latitude,
+            longitude: body.longitude
+          });
+          soilIntelligence = await getSoilIntelligence(body.latitude, body.longitude);
+          console.info("[FarmCompass][Kaegro] Await completed; soil intelligence received", {
             userId: auth.user.id,
             pH: soilIntelligence.pH ?? null,
             soilType: soilIntelligence.soilType ?? null,
             faoClassification: soilIntelligence.faoClassification ?? null,
             providerLatencySeconds: soilIntelligence.providerLatencySeconds ?? null
           });
-        } else {
+        } catch (reason) {
           soilIntelligence = null;
-          const reason = soilResult.status === "rejected" ? soilResult.reason : null;
           soilWarning = reason instanceof Error
             ? `Soil data could not be refreshed: ${reason.message}`
             : "Soil data could not be refreshed.";
@@ -145,6 +133,24 @@ export async function PUT(req: Request) {
             soilWarning,
             reason: reason instanceof Error ? { name: reason.name, message: reason.message, stack: reason.stack } : reason
           });
+        }
+      }
+
+      // Climate is awaited separately. This prevents the Kaegro result from
+      // being hidden inside Promise.allSettled and makes the provider sequence
+      // explicit in Vercel logs.
+      if (needsClimate) {
+        try {
+          climateBaseline = await getClimateBaseline(body.latitude, body.longitude);
+          averageRainfallMm = climateBaseline.averageAnnualRainfallMm;
+          averageTemperatureC = climateBaseline.averageTemperatureC;
+        } catch (reason) {
+          climateBaseline = null;
+          averageRainfallMm = null;
+          averageTemperatureC = null;
+          climateWarning = reason instanceof Error
+            ? `Climate averages could not be refreshed: ${reason.message}`
+            : "Climate averages could not be refreshed.";
         }
       }
     }

@@ -7,6 +7,8 @@ import { getClimateBaseline } from "@/lib/weather";
 import { getSoilIntelligence } from "@/lib/soil";
 import type { FarmProfile } from "@/types";
 
+export const maxDuration = 60;
+
 async function getProfile(userId: string) {
   const db = await getDb();
   const profile = await db.collection<FarmProfile>("farmProfiles").findOne({ userId });
@@ -33,25 +35,55 @@ export async function POST() {
     let profile = await getProfile(auth.user.id);
     if (!profile) return NextResponse.json({ error: "Add your farm details before generating a personalised recommendation." }, { status: 409 });
 
-    if (profile.latitude != null && profile.longitude != null) {
+    const latitude = profile.latitude;
+    const longitude = profile.longitude;
+
+    if (latitude != null && longitude != null) {
       const needsClimate = profile.averageRainfallMm == null || profile.averageTemperatureC == null || !profile.climateBaseline;
       const needsSoil = !profile.soilIntelligence || profile.soilIntelligence.schemaVersion !== 2;
       if (needsClimate || needsSoil) {
-        const [climateResult, soilResult] = await Promise.allSettled([
-          needsClimate ? getClimateBaseline(profile.latitude, profile.longitude) : Promise.resolve(profile.climateBaseline),
-          needsSoil ? getSoilIntelligence(profile.latitude, profile.longitude) : Promise.resolve(profile.soilIntelligence)
-        ]);
         const update: Partial<FarmProfile> = { updatedAt: new Date(), updatedBy: "FARMER" };
-        if (needsClimate && climateResult.status === "fulfilled" && climateResult.value) {
-          update.climateBaseline = climateResult.value;
-          update.averageRainfallMm = climateResult.value.averageAnnualRainfallMm;
-          update.averageTemperatureC = climateResult.value.averageTemperatureC;
-          profile = { ...profile, climateBaseline: climateResult.value, averageRainfallMm: climateResult.value.averageAnnualRainfallMm, averageTemperatureC: climateResult.value.averageTemperatureC };
+
+        // Explicitly await Kaegro first so recommendation scoring cannot run
+        // before the soil response has been fully received and mapped.
+        if (needsSoil) {
+          try {
+            console.info("[FarmCompass][Kaegro] Recommendation waiting for Kaegro soil response", {
+              userId: auth.user.id,
+              latitude,
+              longitude
+            });
+            const soil = await getSoilIntelligence(latitude, longitude);
+            update.soilIntelligence = soil;
+            profile = { ...profile, soilIntelligence: soil };
+            console.info("[FarmCompass][Kaegro] Recommendation received Kaegro soil response", {
+              userId: auth.user.id,
+              pH: soil.pH,
+              soilType: soil.soilType
+            });
+          } catch (error) {
+            console.error("[FarmCompass][Kaegro] Recommendation soil refresh failed", {
+              userId: auth.user.id,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
         }
-        if (needsSoil && soilResult.status === "fulfilled" && soilResult.value) {
-          update.soilIntelligence = soilResult.value;
-          profile = { ...profile, soilIntelligence: soilResult.value };
+
+        if (needsClimate) {
+          try {
+            const climate = await getClimateBaseline(latitude, longitude);
+            update.climateBaseline = climate;
+            update.averageRainfallMm = climate.averageAnnualRainfallMm;
+            update.averageTemperatureC = climate.averageTemperatureC;
+            profile = { ...profile, climateBaseline: climate, averageRainfallMm: climate.averageAnnualRainfallMm, averageTemperatureC: climate.averageTemperatureC };
+          } catch (error) {
+            console.error("[FarmCompass][Climate] Recommendation climate refresh failed", {
+              userId: auth.user.id,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
         }
+
         if (Object.keys(update).length > 2) {
           const db = await getDb();
           await db.collection<FarmProfile>("farmProfiles").updateOne({ userId: auth.user.id }, { $set: update });
