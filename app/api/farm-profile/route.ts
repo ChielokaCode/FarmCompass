@@ -80,7 +80,7 @@ export async function PUT(req: Request) {
       soilIntelligence = null;
     } else {
       const needsClimate = locationChanged || !climateBaseline || averageRainfallMm == null || averageTemperatureC == null;
-      const needsSoil = locationChanged || !soilIntelligence;
+      const needsSoil = locationChanged || !soilIntelligence || soilIntelligence.schemaVersion !== 2;
       const [climateResult, soilResult] = await Promise.allSettled([
         needsClimate ? getClimateBaseline(body.latitude, body.longitude) : Promise.resolve(climateBaseline),
         needsSoil ? getSoilIntelligence(body.latitude, body.longitude) : Promise.resolve(soilIntelligence)

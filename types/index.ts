@@ -31,12 +31,31 @@ export type ClimateBaseline = {
 
 
 export type SoilIntelligence = {
+  schemaVersion: 2;
   source: "Kaegro Soil API";
   endpoint: string;
   latitude: number;
   longitude: number;
   pH: number | null;
   soilType: string | null;
+  faoClassification: string | null;
+  physical: {
+    sandPercent: number | null;
+    siltPercent: number | null;
+    clayPercent: number | null;
+    bulkDensityGcm3: number | null;
+  };
+  chemical: {
+    pHH2O: number | null;
+    organicMatterPercent: number | null;
+    nitrogenGKg: number | null;
+    cecCmolKg: number | null;
+  };
+  water: {
+    fieldCapacityVolPercent: number | null;
+    wiltingPointVolPercent: number | null;
+  };
+  providerLatencySeconds: number | null;
   attributes: Record<string, string | number | boolean | null>;
   fetchedAt: Date | string;
 };

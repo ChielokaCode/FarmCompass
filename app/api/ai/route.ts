@@ -40,7 +40,11 @@ export async function POST(req: Request) {
           source: profile.soilIntelligence.source,
           pH: profile.soilIntelligence.pH,
           soilType: profile.soilIntelligence.soilType,
-          attributes: profile.soilIntelligence.attributes,
+          faoClassification: profile.soilIntelligence.faoClassification,
+          physical: profile.soilIntelligence.physical,
+          chemical: profile.soilIntelligence.chemical,
+          water: profile.soilIntelligence.water,
+          providerLatencySeconds: profile.soilIntelligence.providerLatencySeconds,
           fetchedAt: profile.soilIntelligence.fetchedAt
         } : null,
         irrigation: profile.irrigation,

@@ -35,7 +35,7 @@ export async function POST() {
 
     if (profile.latitude != null && profile.longitude != null) {
       const needsClimate = profile.averageRainfallMm == null || profile.averageTemperatureC == null || !profile.climateBaseline;
-      const needsSoil = !profile.soilIntelligence;
+      const needsSoil = !profile.soilIntelligence || profile.soilIntelligence.schemaVersion !== 2;
       if (needsClimate || needsSoil) {
         const [climateResult, soilResult] = await Promise.allSettled([
           needsClimate ? getClimateBaseline(profile.latitude, profile.longitude) : Promise.resolve(profile.climateBaseline),

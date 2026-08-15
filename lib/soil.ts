@@ -1,152 +1,176 @@
 import type { FarmProfile, SoilIntelligence } from "@/types";
 
-const KAegro_ENDPOINT = "https://www.kaegro.com/farms/api/soil";
+const KAEGRO_ENDPOINT = "https://www.kaegro.com/farms/api/soil";
+const KAEGRO_TIMEOUT_MS = 30_000;
 
-type Scalar = string | number | boolean | null;
-type FlatScalar = { path: string; key: string; value: Scalar };
+type KaegroSoilResponse = {
+  location?: {
+    lat?: unknown;
+    lon?: unknown;
+  };
+  soil_type?: {
+    texture_class?: unknown;
+    fao_classification?: unknown;
+  };
+  physical?: {
+    sand_pct?: unknown;
+    silt_pct?: unknown;
+    clay_pct?: unknown;
+    bulk_density_g_cm3?: unknown;
+  };
+  chemical?: {
+    ph_h2o?: unknown;
+    organic_matter_pct?: unknown;
+    nitrogen_g_kg?: unknown;
+    cec_cmol_kg?: unknown;
+  };
+  water?: {
+    capacity_field_vol_pct?: unknown;
+    capacity_wilt_vol_pct?: unknown;
+  };
+  _meta?: {
+    latency_seconds?: unknown;
+  };
+};
 
-function normalizeKey(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function flattenScalars(value: unknown, prefix = "", out: FlatScalar[] = [], depth = 0): FlatScalar[] {
-  if (depth > 6 || out.length >= 80) return out;
-  if (value == null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    if (prefix) {
-      const parts = prefix.split(".");
-      out.push({ path: prefix, key: parts[parts.length - 1] || prefix, value: value as Scalar });
-    }
-    return out;
-  }
-  if (Array.isArray(value)) {
-    value.slice(0, 12).forEach((item, index) => flattenScalars(item, prefix ? `${prefix}.${index}` : String(index), out, depth + 1));
-    return out;
-  }
-  if (typeof value === "object") {
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      flattenScalars(item, prefix ? `${prefix}.${key}` : key, out, depth + 1);
-      if (out.length >= 80) break;
-    }
-  }
-  return out;
-}
-
-function asNumber(value: Scalar): number | null {
+function finiteNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/)?.[0]);
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
 }
 
-function asText(value: Scalar): string | null {
-  if (typeof value !== "string") return null;
-  const text = value.trim();
-  return text && text.length <= 160 ? text : null;
+function text(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function findNumber(items: FlatScalar[], aliases: string[], range?: [number, number]) {
-  const normalizedAliases = aliases.map(normalizeKey);
-  const ranked = items
-    .map(item => {
-      const key = normalizeKey(item.key);
-      const path = normalizeKey(item.path);
-      const exact = normalizedAliases.some(alias => key === alias);
-      const pathHit = normalizedAliases.some(alias => alias.length >= 4 && path.includes(alias));
-      return { item, score: exact ? 2 : pathHit ? 1 : 0 };
-    })
-    .filter(entry => entry.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  for (const { item } of ranked) {
-    const number = asNumber(item.value);
-    if (number == null) continue;
-    if (range && (number < range[0] || number > range[1])) continue;
-    return number;
+function requireObject(value: unknown): KaegroSoilResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Kaegro soil service returned an unexpected response format.");
   }
-  return null;
-}
-
-function findText(items: FlatScalar[], aliases: string[]) {
-  const normalizedAliases = aliases.map(normalizeKey);
-  const ranked = items
-    .map(item => {
-      const key = normalizeKey(item.key);
-      const path = normalizeKey(item.path);
-      const exact = normalizedAliases.some(alias => key === alias);
-      const pathHit = normalizedAliases.some(alias => alias.length >= 3 && path.includes(alias));
-      return { item, score: exact ? 2 : pathHit ? 1 : 0 };
-    })
-    .filter(entry => entry.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  for (const { item } of ranked) {
-    const text = asText(item.value);
-    if (text) return text;
-  }
-  return null;
-}
-
-function readableLabel(path: string) {
-  const leaf = path.split(".").filter(part => !/^\d+$/.test(part)).pop() || path;
-  return leaf
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, char => char.toUpperCase());
-}
-
-function collectAttributes(items: FlatScalar[]) {
-  const ignored = new Set(["lat", "latitude", "lon", "lng", "longitude"]);
-  const attributes: Record<string, string | number | boolean | null> = {};
-  for (const item of items) {
-    const key = normalizeKey(item.key);
-    if (ignored.has(key)) continue;
-    if (item.value == null || typeof item.value === "object") continue;
-    const label = readableLabel(item.path);
-    if (!(label in attributes)) attributes[label] = item.value;
-    if (Object.keys(attributes).length >= 24) break;
-  }
-  return attributes;
+  return value as KaegroSoilResponse;
 }
 
 export async function getSoilIntelligence(latitude: number, longitude: number): Promise<SoilIntelligence> {
-  const url = new URL(KAegro_ENDPOINT);
+  const url = new URL(KAEGRO_ENDPOINT);
   url.searchParams.set("lat", String(latitude));
   url.searchParams.set("lon", String(longitude));
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
-  let response: Response;
+  const timer = setTimeout(() => controller.abort(), KAEGRO_TIMEOUT_MS);
+  const startedAt = Date.now();
+
   try {
-    response = await fetch(url, {
-      headers: { accept: "application/json", "user-agent": "FarmCompass/1.0" },
+    console.info("[FarmCompass][Kaegro] Soil lookup started");
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        accept: "application/json"
+      },
       cache: "no-store",
+      redirect: "follow",
       signal: controller.signal
     });
+
+    const contentType = response.headers.get("content-type") || "";
+    console.info("[FarmCompass][Kaegro] Soil lookup response", {
+      status: response.status,
+      ok: response.ok,
+      contentType,
+      elapsedMs: Date.now() - startedAt
+    });
+
+    if (!response.ok) {
+      const preview = (await response.text()).slice(0, 240).replace(/\s+/g, " ");
+      throw new Error(`Kaegro soil service returned ${response.status}${preview ? `: ${preview}` : "."}`);
+    }
+
+    if (!contentType.toLowerCase().includes("application/json")) {
+      const preview = (await response.text()).slice(0, 240).replace(/\s+/g, " ");
+      throw new Error(`Kaegro soil service returned a non-JSON response${preview ? `: ${preview}` : "."}`);
+    }
+
+    const data = requireObject(await response.json());
+
+    // Exact field mapping from the Kaegro /farms/api/soil response.
+    const pH = finiteNumber(data.chemical?.ph_h2o);
+    const soilType = text(data.soil_type?.texture_class);
+    const faoClassification = text(data.soil_type?.fao_classification);
+
+    const physical = {
+      sandPercent: finiteNumber(data.physical?.sand_pct),
+      siltPercent: finiteNumber(data.physical?.silt_pct),
+      clayPercent: finiteNumber(data.physical?.clay_pct),
+      bulkDensityGcm3: finiteNumber(data.physical?.bulk_density_g_cm3)
+    };
+
+    const chemical = {
+      pHH2O: pH,
+      organicMatterPercent: finiteNumber(data.chemical?.organic_matter_pct),
+      nitrogenGKg: finiteNumber(data.chemical?.nitrogen_g_kg),
+      cecCmolKg: finiteNumber(data.chemical?.cec_cmol_kg)
+    };
+
+    const water = {
+      fieldCapacityVolPercent: finiteNumber(data.water?.capacity_field_vol_pct),
+      wiltingPointVolPercent: finiteNumber(data.water?.capacity_wilt_vol_pct)
+    };
+
+    const providerLatitude = finiteNumber(data.location?.lat);
+    const providerLongitude = finiteNumber(data.location?.lon);
+    const providerLatencySeconds = finiteNumber(data._meta?.latency_seconds);
+
+    const attributes: Record<string, string | number | boolean | null> = {
+      "Texture class": soilType,
+      "FAO classification": faoClassification,
+      "Sand (%)": physical.sandPercent,
+      "Silt (%)": physical.siltPercent,
+      "Clay (%)": physical.clayPercent,
+      "Bulk density (g/cm³)": physical.bulkDensityGcm3,
+      "pH (H₂O)": pH,
+      "Organic matter (%)": chemical.organicMatterPercent,
+      "Nitrogen (g/kg)": chemical.nitrogenGKg,
+      "CEC (cmol/kg)": chemical.cecCmolKg,
+      "Field capacity (vol %)": water.fieldCapacityVolPercent,
+      "Wilting point (vol %)": water.wiltingPointVolPercent
+    };
+
+    console.info("[FarmCompass][Kaegro] Soil lookup parsed", {
+      pH,
+      soilType,
+      faoClassification,
+      providerLatencySeconds,
+      elapsedMs: Date.now() - startedAt
+    });
+
+    return {
+      schemaVersion: 2,
+      source: "Kaegro Soil API",
+      endpoint: KAEGRO_ENDPOINT,
+      latitude: providerLatitude ?? latitude,
+      longitude: providerLongitude ?? longitude,
+      pH,
+      soilType,
+      faoClassification,
+      physical,
+      chemical,
+      water,
+      providerLatencySeconds,
+      attributes,
+      fetchedAt: new Date().toISOString()
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      console.error("[FarmCompass][Kaegro] Soil lookup timed out", { elapsedMs: Date.now() - startedAt });
+      throw new Error(`Kaegro soil service did not respond within ${KAEGRO_TIMEOUT_MS / 1000} seconds.`);
+    }
+    console.error("[FarmCompass][Kaegro] Soil lookup failed", error);
+    throw error;
   } finally {
     clearTimeout(timer);
   }
-
-  if (!response.ok) {
-    throw new Error(`Kaegro soil service returned ${response.status}.`);
-  }
-  const data: unknown = await response.json();
-  const flat = flattenScalars(data);
-
-  const pH = findNumber(flat, ["ph", "soil_ph", "soilph", "phh2o", "ph_water", "phvalue"], [0, 14]);
-  const soilType = findText(flat, ["soil_type", "soiltype", "texture_class", "textureclass", "soil_texture", "texture", "classification"]);
-
-  return {
-    source: "Kaegro Soil API",
-    endpoint: KAegro_ENDPOINT,
-    latitude,
-    longitude,
-    pH,
-    soilType,
-    attributes: collectAttributes(flat),
-    fetchedAt: new Date().toISOString()
-  };
 }
 
 export function effectiveSoilPH(profile: FarmProfile) {

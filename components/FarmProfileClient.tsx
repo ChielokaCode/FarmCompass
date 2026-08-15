@@ -23,9 +23,28 @@ type Climate = {
 };
 
 type SoilIntelligence = {
+  schemaVersion?: number;
   source: string;
   pH?: number | null;
   soilType?: string | null;
+  faoClassification?: string | null;
+  physical?: {
+    sandPercent?: number | null;
+    siltPercent?: number | null;
+    clayPercent?: number | null;
+    bulkDensityGcm3?: number | null;
+  };
+  chemical?: {
+    pHH2O?: number | null;
+    organicMatterPercent?: number | null;
+    nitrogenGKg?: number | null;
+    cecCmolKg?: number | null;
+  };
+  water?: {
+    fieldCapacityVolPercent?: number | null;
+    wiltingPointVolPercent?: number | null;
+  };
+  providerLatencySeconds?: number | null;
   attributes?: Record<string, string | number | boolean | null>;
   fetchedAt?: string;
 };
@@ -327,11 +346,24 @@ export default function FarmProfileClient({ email }: { email: string }) {
         {soil ? <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
           <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] font-black uppercase tracking-wide text-emerald-700">Automatic soil profile</div><div className="mt-1 text-sm font-black text-emerald-950">Kaegro Soil API</div></div><span className="rounded-full bg-white px-3 py-1 text-[10px] font-black text-emerald-700">GPS BASED</span></div>
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Estimated pH</div><div className="mt-1 text-lg font-black">{soil.pH == null ? "Not returned" : soil.pH.toFixed(1)}</div></div>
-            <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Soil type / texture</div><div className="mt-1 text-sm font-black">{soil.soilType || "Not returned"}</div></div>
+            <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Estimated pH (H₂O)</div><div className="mt-1 text-lg font-black">{soil.pH == null ? "Not returned" : soil.pH.toFixed(2)}</div></div>
+            <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Texture class</div><div className="mt-1 text-sm font-black">{soil.soilType || "Not returned"}</div></div>
+            <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">FAO classification</div><div className="mt-1 text-sm font-black">{soil.faoClassification || "Not returned"}</div></div>
+            <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Organic matter</div><div className="mt-1 text-sm font-black">{soil.chemical?.organicMatterPercent == null ? "Not returned" : `${soil.chemical.organicMatterPercent.toFixed(2)}%`}</div></div>
           </div>
-          {soil.attributes && Object.keys(soil.attributes).length > 0 && <div className="mt-3 grid grid-cols-2 gap-2">{Object.entries(soil.attributes).filter(([label]) => !/latitude|longitude/i.test(label)).slice(0, 6).map(([label, value]) => <div key={label} className="rounded-xl bg-white p-3"><div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div><div className="mt-1 break-words text-xs font-extrabold text-slate-700">{String(value)}</div></div>)}</div>}
-          <p className="mt-3 text-[11px] leading-5 text-emerald-900">Location-based soil values support crop suitability and AI context, but they are not a laboratory soil test. A measured soil test should take priority where available.</p>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {[
+              ["Sand", soil.physical?.sandPercent == null ? null : `${soil.physical.sandPercent.toFixed(2)}%`],
+              ["Silt", soil.physical?.siltPercent == null ? null : `${soil.physical.siltPercent.toFixed(2)}%`],
+              ["Clay", soil.physical?.clayPercent == null ? null : `${soil.physical.clayPercent.toFixed(2)}%`],
+              ["Bulk density", soil.physical?.bulkDensityGcm3 == null ? null : `${soil.physical.bulkDensityGcm3.toFixed(2)} g/cm³`],
+              ["Nitrogen", soil.chemical?.nitrogenGKg == null ? null : `${soil.chemical.nitrogenGKg.toFixed(2)} g/kg`],
+              ["CEC", soil.chemical?.cecCmolKg == null ? null : `${soil.chemical.cecCmolKg.toFixed(2)} cmol/kg`],
+              ["Field capacity", soil.water?.fieldCapacityVolPercent == null ? null : `${soil.water.fieldCapacityVolPercent.toFixed(2)}%`],
+              ["Wilting point", soil.water?.wiltingPointVolPercent == null ? null : `${soil.water.wiltingPointVolPercent.toFixed(2)}%`]
+            ].map(([label, value]) => <div key={String(label)} className="rounded-xl bg-white p-3"><div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{String(label)}</div><div className="mt-1 break-words text-xs font-extrabold text-slate-700">{value == null ? "Not returned" : String(value)}</div></div>)}
+          </div>
+          <p className="mt-3 text-[11px] leading-5 text-emerald-900">Kaegro values are location-derived soil estimates. FarmCompass uses the estimated pH and texture directly when matching crop requirements; the remaining properties are retained as extra farm context for the AI assistant. A measured laboratory soil test should take priority where available.</p>
         </div> : hasCapturedLocation && <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-xs leading-5 text-amber-900">Save the farm profile to request soil information for these coordinates. If the external soil service is temporarily unavailable, the rest of your farm profile will still be saved.</div>}
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
