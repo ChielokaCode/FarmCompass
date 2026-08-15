@@ -10,6 +10,25 @@ const states = [
 ];
 const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
+type Climate = {
+  source: string;
+  model: string;
+  periodStart: string;
+  periodEnd: string;
+  years: number;
+  averageAnnualRainfallMm: number;
+  averageTemperatureC: number;
+  updatedAt?: string;
+};
+
+type SoilIntelligence = {
+  source: string;
+  pH?: number | null;
+  soilType?: string | null;
+  attributes?: Record<string, string | number | boolean | null>;
+  fetchedAt?: string;
+};
+
 type Profile = {
   state: string;
   lga: string;
@@ -19,8 +38,14 @@ type Profile = {
   irrigation: "rainfed" | "irrigated" | "mixed" | "unknown";
   farmingGoal?: string | null;
   plantingMonth?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  locationAccuracyM?: number | null;
+  locationCapturedAt?: string | null;
   averageRainfallMm?: number | null;
   averageTemperatureC?: number | null;
+  climateBaseline?: Climate | null;
+  soilIntelligence?: SoilIntelligence | null;
   notes?: string | null;
   updatedAt?: string;
 };
@@ -34,8 +59,9 @@ type FormState = {
   irrigation: Profile["irrigation"];
   farmingGoal: string;
   plantingMonth: string;
-  averageRainfallMm: string;
-  averageTemperatureC: string;
+  latitude: number | null;
+  longitude: number | null;
+  locationAccuracyM: number | null;
   notes: string;
 };
 
@@ -48,8 +74,9 @@ const emptyForm: FormState = {
   irrigation: "unknown",
   farmingGoal: "",
   plantingMonth: "",
-  averageRainfallMm: "",
-  averageTemperatureC: "",
+  latitude: null,
+  longitude: null,
+  locationAccuracyM: null,
   notes: ""
 };
 
@@ -64,10 +91,16 @@ function toForm(profile: Profile | null): FormState {
     irrigation: profile.irrigation || "unknown",
     farmingGoal: profile.farmingGoal || "",
     plantingMonth: profile.plantingMonth || "",
-    averageRainfallMm: profile.averageRainfallMm == null ? "" : String(profile.averageRainfallMm),
-    averageTemperatureC: profile.averageTemperatureC == null ? "" : String(profile.averageTemperatureC),
+    latitude: profile.latitude ?? null,
+    longitude: profile.longitude ?? null,
+    locationAccuracyM: profile.locationAccuracyM ?? null,
     notes: profile.notes || ""
   };
+}
+
+function baselinePeriod(climate?: Climate | null) {
+  if (!climate) return "";
+  return `${climate.periodStart.slice(0, 4)}–${climate.periodEnd.slice(0, 4)}`;
 }
 
 export default function FarmProfileClient({ email }: { email: string }) {
@@ -75,6 +108,7 @@ export default function FarmProfileClient({ email }: { email: string }) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -97,6 +131,36 @@ export default function FarmProfileClient({ email }: { email: string }) {
     setForm(prev => ({ ...prev, [key]: value }));
   }
 
+  function useCurrentLocation() {
+    setError("");
+    setMessage("");
+    if (!("geolocation" in navigator)) {
+      setError("This browser does not provide device location. You can still save the rest of your farm profile.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        setForm(prev => ({
+          ...prev,
+          latitude: Number(position.coords.latitude.toFixed(6)),
+          longitude: Number(position.coords.longitude.toFixed(6)),
+          locationAccuracyM: Number(position.coords.accuracy.toFixed(0))
+        }));
+        setLocating(false);
+        setMessage("Farm location captured. Save your farm profile to calculate climate, weather and location-based soil information automatically.");
+      },
+      geoError => {
+        setLocating(false);
+        const message = geoError.code === geoError.PERMISSION_DENIED
+          ? "Location permission was denied. Allow location access in your browser if you want FarmCompass to calculate climate, weather and soil context for this farm."
+          : "FarmCompass could not determine your location. Try again outdoors or where your phone has a stronger location signal.";
+        setError(message);
+      },
+      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 }
+    );
+  }
+
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
@@ -114,8 +178,9 @@ export default function FarmProfileClient({ email }: { email: string }) {
       irrigation: form.irrigation,
       farmingGoal: textOrNull(form.farmingGoal),
       plantingMonth: textOrNull(form.plantingMonth),
-      averageRainfallMm: numberOrNull(form.averageRainfallMm),
-      averageTemperatureC: numberOrNull(form.averageTemperatureC),
+      latitude: form.latitude,
+      longitude: form.longitude,
+      locationAccuracyM: form.locationAccuracyM,
       notes: textOrNull(form.notes)
     };
 
@@ -132,44 +197,84 @@ export default function FarmProfileClient({ email }: { email: string }) {
       return;
     }
 
-    setProfile(data.profile || null);
-    setForm(toForm(data.profile || null));
-    setMessage(profile ? "Farm details updated. New recommendations will use these values." : "Farm profile created. You can now get a personalised recommendation.");
+    const next = data.profile || null;
+    setProfile(next);
+    setForm(toForm(next));
+    const baseMessage = profile
+      ? "Farm details updated. New recommendations will use these values."
+      : "Farm profile created. You can now get a personalised recommendation.";
+    const warnings = [data.climateWarning, data.soilWarning].filter(Boolean).join(" ");
+    setMessage(warnings ? `${baseMessage} ${warnings}` : baseMessage);
   }
 
   if (loading) return <div className="fc-card-flat p-5 text-sm text-slate-500">Loading your farm profile…</div>;
 
+  const hasCapturedLocation = form.latitude != null && form.longitude != null;
+  const locationMatchesSaved = hasCapturedLocation && profile?.latitude != null && profile?.longitude != null
+    && Math.abs((form.latitude ?? 0) - profile.latitude) < 0.0001
+    && Math.abs((form.longitude ?? 0) - profile.longitude) < 0.0001;
+  const climate = locationMatchesSaved ? profile?.climateBaseline : null;
+  const soil = locationMatchesSaved ? profile?.soilIntelligence : null;
+
   return <div className="space-y-5">
-    {error && <div className="rounded-2xl bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>}
+    {error && <div className="rounded-2xl bg-red-50 p-4 text-sm font-semibold leading-6 text-red-700">{error}</div>}
     {message && <div className="rounded-2xl bg-emerald-50 p-4 text-sm font-semibold leading-6 text-emerald-800">{message}</div>}
 
     {!profile && <section className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-5">
       <div className="flex gap-3">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-emerald-100 text-emerald-800"><AppIcon name="farm"/></span>
-        <div><h2 className="font-black text-emerald-950">Set up your farm</h2><p className="mt-1 text-sm leading-6 text-emerald-900">Add the details you know about your farm. You can leave pH, rainfall and temperature blank if you do not know them, and you can edit the profile later.</p></div>
+        <div><h2 className="font-black text-emerald-950">Create your farm profile</h2><p className="mt-1 text-sm leading-6 text-emerald-900">Enter what you know. Do not guess soil pH. When farm GPS is saved, FarmCompass can obtain location-based soil information automatically.</p></div>
       </div>
     </section>}
 
-    <form onSubmit={save} className="space-y-5">
+    <form onSubmit={save} className="space-y-4">
       <section className="fc-card p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div><div className="text-xs font-black uppercase tracking-[.1em] text-emerald-700">Farm location</div><h2 className="mt-1 text-xl font-black">Where is your farm?</h2></div>
-          <span className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-50 text-emerald-700"><AppIcon name="mapPin"/></span>
-        </div>
+        <div className="text-xs font-black uppercase tracking-[.1em] text-emerald-700">Farm identity</div>
+        <h2 className="mt-1 text-xl font-black">Where is the farm?</h2>
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          <div><label className="fc-label">State</label><select required className="fc-input" value={form.state} onChange={e => update("state", e.target.value)}><option value="">Select state</option>{states.map(state => <option key={state}>{state}</option>)}</select></div>
-          <div><label className="fc-label">LGA</label><input required className="fc-input" value={form.lga} onChange={e => update("lga", e.target.value)} placeholder="Local Government Area"/></div>
-          <div><label className="fc-label">Farm size (hectares)</label><input className="fc-input" type="number" min="0" step="0.01" value={form.farmSizeHa} onChange={e => update("farmSizeHa", e.target.value)} placeholder="e.g. 1.5"/></div>
-          <div><label className="fc-label">Water source/context</label><select className="fc-input" value={form.irrigation} onChange={e => update("irrigation", e.target.value as Profile["irrigation"])}><option value="unknown">I am not sure</option><option value="rainfed">Rainfed</option><option value="irrigated">Irrigated</option><option value="mixed">Rainfall + irrigation</option></select></div>
+          <div><label className="fc-label">State</label><select required className="fc-input" value={form.state} onChange={e => update("state", e.target.value)}><option value="">Select State</option>{states.map(state => <option key={state}>{state}</option>)}</select></div>
+          <div><label className="fc-label">LGA</label><input required className="fc-input" maxLength={100} value={form.lga} onChange={e => update("lga", e.target.value)} placeholder="e.g. Ifo"/></div>
+          <div><label className="fc-label">Farm size (hectares)</label><input className="fc-input" type="number" min="0" step="0.01" value={form.farmSizeHa} onChange={e => update("farmSizeHa", e.target.value)} placeholder="Optional"/></div>
+          <div><label className="fc-label">Water context</label><select className="fc-input" value={form.irrigation} onChange={e => update("irrigation", e.target.value as Profile["irrigation"])}><option value="unknown">Not sure</option><option value="rainfed">Rainfed</option><option value="irrigated">Irrigated</option><option value="mixed">Rainfed + irrigation</option></select></div>
         </div>
       </section>
 
       <section className="fc-card p-5">
-        <div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-[.1em] text-emerald-700">Soil</div><h2 className="mt-1 text-xl font-black">What do you know about the soil?</h2></div><span className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-50 text-emerald-700"><AppIcon name="flask"/></span></div>
-        <p className="mt-2 text-xs leading-5 text-slate-500">Do not guess. Unknown values are allowed; FarmCompass will use the factors that are available.</p>
+        <div className="flex items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-blue-50 text-blue-700"><AppIcon name="mapPin"/></span><div><div className="text-xs font-black uppercase tracking-[.1em] text-blue-700">Farm GPS intelligence</div><h2 className="mt-1 text-xl font-black">Let FarmCompass detect climate and soil context</h2></div></div>
+        <p className="mt-3 text-sm leading-6 text-slate-600">Use the farm&apos;s location so FarmCompass can calculate long-term rainfall and temperature, show short-term weather, and request location-based soil information such as pH from the Kaegro soil service. This reduces the need to guess environmental values.</p>
+
+        <button type="button" onClick={useCurrentLocation} disabled={locating} className="fc-btn fc-btn-secondary mt-4 w-full"><AppIcon name="mapPin"/>{locating ? "Finding farm location…" : hasCapturedLocation ? "Update farm location" : "Use my current location"}</button>
+
+        {hasCapturedLocation ? <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+          <div className="flex items-center justify-between gap-3"><div><div className="text-[11px] font-black uppercase tracking-wide text-slate-400">Saved coordinates</div><div className="mt-1 text-sm font-extrabold">{form.latitude?.toFixed(5)}, {form.longitude?.toFixed(5)}</div></div><button type="button" onClick={() => setForm(prev => ({ ...prev, latitude: null, longitude: null, locationAccuracyM: null }))} className="text-xs font-black text-red-600">Remove</button></div>
+          <p className="mt-2 text-xs leading-5 text-slate-500">Estimated location accuracy: {form.locationAccuracyM == null ? "not reported" : `about ${Math.round(form.locationAccuracyM)} m`}. For best results, capture the location while you are physically at the farm.</p>
+        </div> : <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-xs leading-5 text-amber-900"><b>Optional but recommended:</b> without farm GPS, recommendations can still use State/LGA and other information you provide, but automatic climate matching, farm weather and Kaegro soil estimates will be unavailable.</div>}
+
+        {climate && hasCapturedLocation && <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Avg annual rainfall</div><div className="mt-1 text-lg font-black">{Math.round(climate.averageAnnualRainfallMm).toLocaleString()} mm</div></div>
+          <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Avg temperature</div><div className="mt-1 text-lg font-black">{climate.averageTemperatureC.toFixed(1)}°C</div></div>
+          <div className="col-span-2 mt-1 text-[11px] leading-5 text-slate-500">Based on {climate.years}-year {climate.model} historical weather data ({baselinePeriod(climate)}). These are area-level climate estimates, not measurements from a sensor on your farm.</div>
+        </div>}
+      </section>
+
+      <section className="fc-card p-5">
+        <div className="text-xs font-black uppercase tracking-[.1em] text-emerald-700">Soil intelligence</div>
+        <h2 className="mt-1 text-xl font-black">Soil information without guessing</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">FarmCompass uses a measured value you enter only when you actually have one. Otherwise, a saved GPS location can provide a Kaegro location-based soil estimate for recommendation context.</p>
+
+        {soil ? <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+          <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] font-black uppercase tracking-wide text-emerald-700">Automatic soil profile</div><div className="mt-1 text-sm font-black text-emerald-950">Kaegro Soil API</div></div><span className="rounded-full bg-white px-3 py-1 text-[10px] font-black text-emerald-700">GPS BASED</span></div>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Estimated pH</div><div className="mt-1 text-lg font-black">{soil.pH == null ? "Not returned" : soil.pH.toFixed(1)}</div></div>
+            <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Soil type / texture</div><div className="mt-1 text-sm font-black">{soil.soilType || "Not returned"}</div></div>
+          </div>
+          {soil.attributes && Object.keys(soil.attributes).length > 0 && <div className="mt-3 grid grid-cols-2 gap-2">{Object.entries(soil.attributes).filter(([label]) => !/latitude|longitude/i.test(label)).slice(0, 6).map(([label, value]) => <div key={label} className="rounded-xl bg-white p-3"><div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div><div className="mt-1 break-words text-xs font-extrabold text-slate-700">{String(value)}</div></div>)}</div>}
+          <p className="mt-3 text-[11px] leading-5 text-emerald-900">Location-based soil values support crop suitability and AI context, but they are not a laboratory soil test. A measured soil test should take priority where available.</p>
+        </div> : hasCapturedLocation && <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-xs leading-5 text-amber-900">Save the farm profile to request soil information for these coordinates. If the external soil service is temporarily unavailable, the rest of your farm profile will still be saved.</div>}
+
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          <div><label className="fc-label">Soil type</label><select className="fc-input" value={form.soilType} onChange={e => update("soilType", e.target.value)}><option value="">Unknown</option><option>Sandy loam</option><option>Loam</option><option>Clay loam</option><option>Clay</option><option>Sandy soil</option><option>Alluvial soil</option><option>Laterite</option></select></div>
-          <div><label className="fc-label">Soil pH (if known)</label><input className="fc-input" type="number" min="3" max="10" step="0.1" value={form.pH} onChange={e => update("pH", e.target.value)} placeholder="Leave blank if unknown"/></div>
+          <div><label className="fc-label">Soil type (only if you know it)</label><select className="fc-input" value={form.soilType} onChange={e => update("soilType", e.target.value)}><option value="">Use automatic/unknown</option><option>Sandy loam</option><option>Loam</option><option>Clay loam</option><option>Sandy soil</option><option>Clay soil</option><option>Silt loam</option><option>Laterite</option></select></div>
+          <div><label className="fc-label">Measured soil pH (optional)</label><input className="fc-input" type="number" min="3" max="10" step="0.1" value={form.pH} onChange={e => update("pH", e.target.value)} placeholder="Only enter a test result"/><p className="mt-1 text-[10px] leading-4 text-slate-500">Leave blank if you have not measured the soil. FarmCompass will use the Kaegro pH estimate when available.</p></div>
         </div>
       </section>
 
@@ -179,24 +284,15 @@ export default function FarmProfileClient({ email }: { email: string }) {
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <div><label className="fc-label">Farming goal</label><select className="fc-input" value={form.farmingGoal} onChange={e => update("farmingGoal", e.target.value)}><option value="">Not specified</option><option value="food crop">Food crop</option><option value="cash crop">Cash crop</option><option value="vegetable">Vegetable</option><option value="fruit">Fruit crop</option><option value="short duration">Short-duration crop</option><option value="perennial">Perennial crop</option></select></div>
           <div><label className="fc-label">Planned planting month</label><select className="fc-input" value={form.plantingMonth} onChange={e => update("plantingMonth", e.target.value)}><option value="">Not specified</option>{months.map(month => <option key={month}>{month}</option>)}</select></div>
+          <div className="sm:col-span-2"><label className="fc-label">Personal farm notes</label><textarea className="fc-input" rows={3} maxLength={500} value={form.notes} onChange={e => update("notes", e.target.value)} placeholder="Optional notes for your own farm profile"/></div>
         </div>
       </section>
 
-      <details className="fc-card-flat p-5">
-        <summary className="cursor-pointer font-black">Optional advanced climate details</summary>
-        <p className="mt-2 text-xs leading-5 text-slate-500">Only enter these values if you have a reliable source for your farm or area.</p>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div><label className="fc-label">Average rainfall (mm/year)</label><input className="fc-input" type="number" min="0" step="1" value={form.averageRainfallMm} onChange={e => update("averageRainfallMm", e.target.value)}/></div>
-          <div><label className="fc-label">Average temperature (°C)</label><input className="fc-input" type="number" min="-10" max="60" step="0.1" value={form.averageTemperatureC} onChange={e => update("averageTemperatureC", e.target.value)}/></div>
-          <div className="sm:col-span-2"><label className="fc-label">Personal farm notes</label><textarea className="fc-input" rows={3} maxLength={500} value={form.notes} onChange={e => update("notes", e.target.value)} placeholder="Optional notes for your own farm profile"/></div>
-        </div>
-      </details>
-
-      <button disabled={saving} className="fc-btn fc-btn-primary w-full"><AppIcon name="check"/>{saving ? "Saving farm details…" : profile ? "Save changes" : "Create my farm profile"}</button>
+      <button disabled={saving} className="fc-btn fc-btn-primary w-full"><AppIcon name="check"/>{saving ? "Saving farm details and location intelligence…" : profile ? "Save changes" : "Create my farm profile"}</button>
       {profile && <p className="text-center text-[11px] leading-5 text-slate-500">Last saved {profile.updatedAt ? new Date(profile.updatedAt).toLocaleString() : "recently"}. Changes affect future recommendations; previous saved recommendation results are not rewritten.</p>}
     </form>
 
-    {profile && <Link href="/recommend" className="fc-btn fc-btn-secondary w-full"><AppIcon name="compass"/>Get recommendation from these details</Link>}
+    {profile && <div className="grid grid-cols-2 gap-2"><Link href="/recommend" className="fc-btn fc-btn-secondary w-full text-sm"><AppIcon name="compass"/>Recommend</Link><Link href="/weather" className="fc-btn fc-btn-secondary w-full text-sm"><AppIcon name="sun"/>Farm weather</Link></div>}
 
     <section className="fc-card-flat p-5"><div className="text-xs font-black uppercase tracking-[.1em] text-slate-400">Account</div><div className="mt-2 text-sm font-bold text-slate-700">{email}</div><div className="mt-4 flex flex-wrap gap-3"><Link href="/welcome?replay=1" className="fc-btn fc-btn-secondary !min-h-11 text-sm">Replay app tour</Link><div className="fc-btn fc-btn-secondary !min-h-11 text-sm"><LogoutButton/></div></div></section>
   </div>;

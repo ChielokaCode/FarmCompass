@@ -12,8 +12,13 @@ type Profile = {
   irrigation?: string;
   farmingGoal?: string | null;
   plantingMonth?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  locationAccuracyM?: number | null;
   averageRainfallMm?: number | null;
   averageTemperatureC?: number | null;
+  climateBaseline?: { model?: string; periodStart?: string; periodEnd?: string; years?: number } | null;
+  soilIntelligence?: { source?: string; pH?: number | null; soilType?: string | null; attributes?: Record<string, string | number | boolean | null>; fetchedAt?: string } | null;
   notes?: string | null;
   updatedAt?: string;
 };
@@ -63,14 +68,21 @@ export default function AdminClient() {
             ["State", selected.profile.state],
             ["LGA", selected.profile.lga],
             ["Farm size", selected.profile.farmSizeHa == null ? "Not recorded" : `${selected.profile.farmSizeHa} ha`],
-            ["Soil type", selected.profile.soilType || "Unknown"],
-            ["Soil pH", selected.profile.pH ?? "Unknown"],
+            ["Soil type", selected.profile.soilType || selected.profile.soilIntelligence?.soilType || "Unknown"],
+            ["Soil pH", selected.profile.pH ?? selected.profile.soilIntelligence?.pH ?? "Unknown"],
+            ["Soil pH source", selected.profile.pH != null ? "Farmer-provided measured value" : selected.profile.soilIntelligence?.pH != null ? "Kaegro location estimate" : "Not available"],
+            ["Soil data source", selected.profile.soilIntelligence?.source || "Not calculated"],
             ["Water context", selected.profile.irrigation || "Unknown"],
             ["Farming goal", selected.profile.farmingGoal || "Not recorded"],
             ["Planting month", selected.profile.plantingMonth || "Not recorded"],
-            ["Average rainfall", selected.profile.averageRainfallMm == null ? "Not recorded" : `${selected.profile.averageRainfallMm} mm/year`],
-            ["Average temperature", selected.profile.averageTemperatureC == null ? "Not recorded" : `${selected.profile.averageTemperatureC} °C`]
+            ["Farm GPS", selected.profile.latitude == null || selected.profile.longitude == null ? "Not recorded" : `${selected.profile.latitude.toFixed(5)}, ${selected.profile.longitude.toFixed(5)}`],
+            ["GPS accuracy", selected.profile.locationAccuracyM == null ? "Not recorded" : `about ${Math.round(selected.profile.locationAccuracyM)} m`],
+            ["Average rainfall", selected.profile.averageRainfallMm == null ? "Not recorded" : `${Math.round(selected.profile.averageRainfallMm).toLocaleString()} mm/year`],
+            ["Average temperature", selected.profile.averageTemperatureC == null ? "Not recorded" : `${selected.profile.averageTemperatureC.toFixed(1)} °C`],
+            ["Climate source", selected.profile.climateBaseline ? `${selected.profile.climateBaseline.model || "ERA5"} historical baseline` : "Not calculated"],
+            ["Climate period", selected.profile.climateBaseline?.periodStart && selected.profile.climateBaseline?.periodEnd ? `${selected.profile.climateBaseline.periodStart.slice(0,4)}–${selected.profile.climateBaseline.periodEnd.slice(0,4)}` : "Not recorded"]
           ].map(([label, value]) => <div key={String(label)} className="rounded-2xl bg-slate-50 p-4"><div className="text-[11px] font-black uppercase tracking-wide text-slate-400">{String(label)}</div><div className="mt-1 font-extrabold capitalize text-slate-800">{String(value)}</div></div>)}
+          {selected.profile.soilIntelligence?.attributes && Object.keys(selected.profile.soilIntelligence.attributes).length > 0 && <div className="sm:col-span-2 rounded-2xl bg-emerald-50 p-4"><div className="text-[11px] font-black uppercase tracking-wide text-emerald-700">Additional Kaegro soil attributes</div><div className="mt-2 grid gap-2 sm:grid-cols-2">{Object.entries(selected.profile.soilIntelligence.attributes).filter(([label]) => !/latitude|longitude/i.test(label)).slice(0, 8).map(([label, value]) => <div key={label} className="rounded-xl bg-white px-3 py-2"><span className="text-[10px] font-bold uppercase text-slate-400">{label}</span><div className="text-xs font-extrabold text-slate-700">{String(value)}</div></div>)}</div></div>}
           {selected.profile.notes && <div className="sm:col-span-2 rounded-2xl bg-slate-50 p-4"><div className="text-[11px] font-black uppercase tracking-wide text-slate-400">Farmer notes</div><p className="mt-1 text-sm leading-6 text-slate-700">{selected.profile.notes}</p></div>}
           <div className="sm:col-span-2 text-xs text-slate-400">Last updated {selected.profile.updatedAt ? new Date(selected.profile.updatedAt).toLocaleString() : "not available"}</div>
         </div>}

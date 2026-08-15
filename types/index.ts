@@ -12,6 +12,36 @@ export type UserDoc = {
   createdAt: Date;
 };
 
+export type MonthlyClimateNormal = {
+  month: number;
+  rainfallMm: number | null;
+  temperatureC: number | null;
+};
+
+export type ClimateBaseline = {
+  source: "Open-Meteo Historical Weather API";
+  model: "ERA5";
+  periodStart: string;
+  periodEnd: string;
+  years: number;
+  averageAnnualRainfallMm: number;
+  averageTemperatureC: number;
+  monthly: MonthlyClimateNormal[];
+  updatedAt: Date | string;
+};
+
+
+export type SoilIntelligence = {
+  source: "Kaegro Soil API";
+  endpoint: string;
+  latitude: number;
+  longitude: number;
+  pH: number | null;
+  soilType: string | null;
+  attributes: Record<string, string | number | boolean | null>;
+  fetchedAt: Date | string;
+};
+
 export type FarmProfile = {
   _id?: unknown;
   userId: string;
@@ -23,8 +53,14 @@ export type FarmProfile = {
   irrigation: "rainfed" | "irrigated" | "mixed" | "unknown";
   farmingGoal?: string | null;
   plantingMonth?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  locationAccuracyM?: number | null;
+  locationCapturedAt?: Date | string | null;
   averageRainfallMm?: number | null;
   averageTemperatureC?: number | null;
+  climateBaseline?: ClimateBaseline | null;
+  soilIntelligence?: SoilIntelligence | null;
   notes?: string | null;
   createdAt?: Date;
   updatedAt: Date;
@@ -66,4 +102,41 @@ export type RecommendationResult = {
   score: number;
   reasons: string[];
   components: Record<string, number | null>;
+};
+
+export type FarmWeatherDay = {
+  date: string;
+  weatherCode: number | null;
+  temperatureMaxC: number | null;
+  temperatureMinC: number | null;
+  precipitationMm: number | null;
+  rainMm: number | null;
+  precipitationProbability: number | null;
+  evapotranspirationMm: number | null;
+  windSpeedMaxKmh: number | null;
+};
+
+export type FarmWeatherAdvisory = {
+  id: string;
+  level: "info" | "watch" | "important";
+  title: string;
+  message: string;
+};
+
+export type FarmWeatherForecast = {
+  latitude: number;
+  longitude: number;
+  timezone: string;
+  current: {
+    time: string | null;
+    temperatureC: number | null;
+    apparentTemperatureC: number | null;
+    precipitationMm: number | null;
+    weatherCode: number | null;
+    windSpeedKmh: number | null;
+  };
+  daily: FarmWeatherDay[];
+  advisories: FarmWeatherAdvisory[];
+  source: "Open-Meteo Forecast API";
+  fetchedAt: string;
 };

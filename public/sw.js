@@ -1,6 +1,6 @@
-const CACHE = "farmcompass-v2";
+const CACHE = "farmcompass-v3";
 const PUBLIC_SHELL = ["/", "/crops", "/offline"];
-const PRIVATE_PREFIXES = ["/dashboard", "/recommend", "/assistant", "/profile", "/admin", "/welcome"];
+const PRIVATE_PREFIXES = ["/dashboard", "/recommend", "/assistant", "/profile", "/weather", "/admin", "/welcome"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(PUBLIC_SHELL)));

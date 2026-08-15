@@ -1,0 +1,19 @@
+FarmCompass mobile-first update
+
+1. Stop npm run dev.
+2. Back up your project or commit your current work.
+3. Copy every file/folder from this patch into the ROOT of your existing FarmCompass_App project and allow matching files to be replaced.
+4. Keep your existing .env.local. This patch does not contain or replace it.
+5. Delete docker-compose.yml if it is still in your project and you do not want Docker-related files.
+6. Run: npm run seed
+7. Run: npm run dev
+
+New farmer flow:
+register -> /welcome onboarding -> /dashboard
+
+New mobile tabs:
+/dashboard Home
+/crops Crop Library
+/recommend Recommendation
+/assistant Ask FarmCompass
+/profile My Farm

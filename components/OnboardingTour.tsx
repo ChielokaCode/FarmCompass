@@ -7,8 +7,14 @@ const slides: { icon: AppIconName; title: string; text: string; note: string }[]
   {
     icon: "farm",
     title: "Set up your own farm profile",
-    text: "Add your State, LGA, farm size, soil information, pH when known, water context and farming goal. You can edit these details whenever your farm situation changes.",
-    note: "Unknown values can be left blank. FarmCompass uses the factors that are available instead of forcing you to guess."
+    text: "Add your State, LGA, farm size, water context and farming goal. If you have a measured soil result you can add it, but you do not need to guess pH.",
+    note: "Unknown values can be left blank. With farm GPS, FarmCompass can request location-based soil pH and other soil context automatically."
+  },
+  {
+    icon: "sun",
+    title: "Use your farm location for climate, weather and soil",
+    text: "Capture the farm location once. FarmCompass can calculate long-term rainfall and temperature, show a 7-day weather forecast, and request Kaegro soil information for the same coordinates.",
+    note: "Location-based soil and climate data improve context without asking you to guess values. They remain estimates and do not replace a laboratory soil test."
   },
   {
     icon: "compass",

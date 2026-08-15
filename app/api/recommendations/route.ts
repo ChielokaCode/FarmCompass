@@ -3,6 +3,8 @@ import { apiUser, serverError } from "@/lib/http";
 import { getDb } from "@/lib/mongodb";
 import { listCrops } from "@/lib/crops";
 import { rankCrops } from "@/lib/recommendation";
+import { getClimateBaseline } from "@/lib/weather";
+import { getSoilIntelligence } from "@/lib/soil";
 import type { FarmProfile } from "@/types";
 
 async function getProfile(userId: string) {
@@ -28,8 +30,34 @@ export async function POST() {
   const auth = await apiUser("FARMER");
   if ("error" in auth) return auth.error;
   try {
-    const profile = await getProfile(auth.user.id);
+    let profile = await getProfile(auth.user.id);
     if (!profile) return NextResponse.json({ error: "Add your farm details before generating a personalised recommendation." }, { status: 409 });
+
+    if (profile.latitude != null && profile.longitude != null) {
+      const needsClimate = profile.averageRainfallMm == null || profile.averageTemperatureC == null || !profile.climateBaseline;
+      const needsSoil = !profile.soilIntelligence;
+      if (needsClimate || needsSoil) {
+        const [climateResult, soilResult] = await Promise.allSettled([
+          needsClimate ? getClimateBaseline(profile.latitude, profile.longitude) : Promise.resolve(profile.climateBaseline),
+          needsSoil ? getSoilIntelligence(profile.latitude, profile.longitude) : Promise.resolve(profile.soilIntelligence)
+        ]);
+        const update: Record<string, unknown> = { updatedAt: new Date(), updatedBy: "FARMER" };
+        if (needsClimate && climateResult.status === "fulfilled" && climateResult.value) {
+          update.climateBaseline = climateResult.value;
+          update.averageRainfallMm = climateResult.value.averageAnnualRainfallMm;
+          update.averageTemperatureC = climateResult.value.averageTemperatureC;
+          profile = { ...profile, climateBaseline: climateResult.value, averageRainfallMm: climateResult.value.averageAnnualRainfallMm, averageTemperatureC: climateResult.value.averageTemperatureC };
+        }
+        if (needsSoil && soilResult.status === "fulfilled" && soilResult.value) {
+          update.soilIntelligence = soilResult.value;
+          profile = { ...profile, soilIntelligence: soilResult.value };
+        }
+        if (Object.keys(update).length > 2) {
+          const db = await getDb();
+          await db.collection<FarmProfile>("farmProfiles").updateOne({ userId: auth.user.id }, { $set: update });
+        }
+      }
+    }
 
     const crops = await listCrops();
     const ranked = rankCrops(profile, crops, 5).map(r => ({

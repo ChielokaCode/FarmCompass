@@ -1,4 +1,5 @@
 import type { CropRecord, FarmProfile, RecommendationResult } from "@/types";
+import { effectiveSoilPH, effectiveSoilType, soilPHSource } from "@/lib/soil";
 
 const monthIndex: Record<string, number> = {
   january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
@@ -25,8 +26,9 @@ function stateScore(profile: FarmProfile, crop: CropRecord) {
 }
 
 function soilScore(profile: FarmProfile, crop: CropRecord) {
-  if (!profile.soilType || !crop.soilTypes?.length) return null;
-  const farm = normalize(profile.soilType);
+  const effectiveType = effectiveSoilType(profile);
+  if (!effectiveType || !crop.soilTypes?.length) return null;
+  const farm = normalize(effectiveType);
   const hits = crop.soilTypes.map(normalize);
   if (hits.some((s) => s.includes(farm) || farm.includes(s))) return 1;
   const farmTokens = new Set(farm.split(" "));
@@ -86,7 +88,7 @@ export function scoreCrop(profile: FarmProfile, crop: CropRecord): Recommendatio
   const components: Record<string, number | null> = {
     state: stateScore(profile, crop),
     soil: soilScore(profile, crop),
-    pH: numericRangeScore(profile.pH, crop.pH),
+    pH: numericRangeScore(effectiveSoilPH(profile), crop.pH),
     water: irrigationScore(profile, crop),
     rainfall: numericRangeScore(profile.averageRainfallMm, crop.rainfallMm),
     temperature: numericRangeScore(profile.averageTemperatureC, crop.temperatureC),
@@ -108,14 +110,24 @@ export function scoreCrop(profile: FarmProfile, crop: CropRecord): Recommendatio
   const score = available ? (weighted / available) * 100 : 0;
   const reasons: string[] = [];
   if ((components.state ?? 0) >= 0.95) reasons.push(`${crop.name} is listed for ${profile.state}.`);
-  if ((components.soil ?? 0) >= 0.65 && profile.soilType) reasons.push(`Its soil guidance is compatible with ${profile.soilType}.`);
-  if ((components.pH ?? 0) >= 0.55 && profile.pH != null) reasons.push(`Farm pH ${profile.pH} falls within the crop's documented pH range.`);
+  const effectiveType = effectiveSoilType(profile);
+  const effectivePH = effectiveSoilPH(profile);
+  if ((components.soil ?? 0) >= 0.65 && effectiveType) {
+    const source = profile.soilType ? "farm profile" : "Kaegro location estimate";
+    reasons.push(`The ${source} soil type (${effectiveType}) is compatible with the crop's soil guidance.`);
+  }
+  if ((components.pH ?? 0) >= 0.55 && effectivePH != null) {
+    const source = soilPHSource(profile);
+    reasons.push(`Soil pH ${effectivePH} (${source}) falls within the crop's documented pH range.`);
+  }
   if ((components.water ?? 0) >= 0.8) reasons.push(`The crop's water-management guidance fits a ${profile.irrigation} farm context.`);
+  if ((components.rainfall ?? 0) >= 0.55 && profile.averageRainfallMm != null) reasons.push(`The farm climate baseline of about ${Math.round(profile.averageRainfallMm)} mm rainfall per year falls within the crop\'s documented rainfall range.`);
+  if ((components.temperature ?? 0) >= 0.55 && profile.averageTemperatureC != null) reasons.push(`The farm climate baseline of ${profile.averageTemperatureC.toFixed(1)}°C falls within the crop\'s documented temperature range.`);
   if ((components.season ?? 0) >= 0.7 && profile.plantingMonth) reasons.push(`${profile.plantingMonth} aligns with the documented planting guidance.`);
   if ((components.goal ?? 0) >= 0.9 && profile.farmingGoal) reasons.push(`The crop aligns with the stated goal: ${profile.farmingGoal}.`);
   if (!reasons.length) reasons.push("The crop remains a candidate based on the farm information currently available.");
 
-  return { crop, score: Math.round(score * 10) / 10, reasons: reasons.slice(0, 4), components };
+  return { crop, score: Math.round(score * 10) / 10, reasons: reasons.slice(0, 5), components };
 }
 
 export function rankCrops(profile: FarmProfile, crops: CropRecord[], limit = 5) {

@@ -16,7 +16,7 @@ export default function BottomNav() {
   return <nav className="fc-bottom-nav" aria-label="Farmer navigation">
     <div className="fc-bottom-nav-inner">
       {items.map(item => {
-        const active = pathname === item.href || (item.href === "/crops" && pathname.startsWith("/crops/"));
+        const active = pathname === item.href || (item.href === "/crops" && pathname.startsWith("/crops/")) || (item.href === "/dashboard" && pathname === "/weather");
         return <Link key={item.href} href={item.href} className={`fc-bottom-nav-item ${active ? "is-active" : ""} ${item.primary ? "is-primary" : ""}`}>
           <span className="fc-bottom-nav-icon"><AppIcon name={item.icon} className={item.primary ? "h-6 w-6" : "h-[21px] w-[21px]"}/></span>
           <span>{item.label}</span>
