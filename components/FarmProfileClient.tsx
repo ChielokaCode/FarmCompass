@@ -167,6 +167,10 @@ export default function FarmProfileClient({ email }: { email: string }) {
           return;
         }
         const next = data.profile || null;
+        console.info("[FarmCompass][Kaegro][Client] Loaded farm profile soil intelligence", {
+          hasSoilIntelligence: Boolean(next?.soilIntelligence),
+          soilIntelligence: next?.soilIntelligence ?? null
+        });
         setProfile(next);
         setForm(toForm(next));
       })
@@ -272,6 +276,14 @@ export default function FarmProfileClient({ email }: { email: string }) {
     const data = await r.json();
     setSaving(false);
 
+    console.info("[FarmCompass][Kaegro][Client] Farm profile save response", {
+      httpStatus: r.status,
+      ok: r.ok,
+      soilWarning: data.soilWarning || null,
+      hasSoilIntelligence: Boolean(data.profile?.soilIntelligence),
+      soilIntelligence: data.profile?.soilIntelligence ?? null
+    });
+
     if (!r.ok) {
       setError(data.error || "Unable to save your farm profile");
       return;
@@ -331,10 +343,17 @@ export default function FarmProfileClient({ email }: { email: string }) {
           <p className="mt-2 text-xs leading-5 text-slate-500">Estimated horizontal accuracy: {form.locationAccuracyM == null ? "not reported" : `about ${Math.round(form.locationAccuracyM)} m`}.{form.altitudeM == null ? "" : ` Altitude: ${form.altitudeM.toFixed(1)} m${form.altitudeAccuracyM == null ? "" : ` (±${Math.round(form.altitudeAccuracyM)} m)`}.`} For best results, capture the location while you are physically at the farm.</p>
         </div> : <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-xs leading-5 text-amber-900"><b>Optional but recommended:</b> without farm GPS, recommendations can still use State/LGA and other information you provide, but automatic climate matching, farm weather and Kaegro soil estimates will be unavailable.</div>}
 
-        {climate && hasCapturedLocation && <div className="mt-4 grid grid-cols-2 gap-2">
-          <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Avg annual rainfall</div><div className="mt-1 text-lg font-black">{Math.round(climate.averageAnnualRainfallMm).toLocaleString()} mm</div></div>
-          <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Avg temperature</div><div className="mt-1 text-lg font-black">{climate.averageTemperatureC.toFixed(1)}°C</div></div>
-          <div className="col-span-2 mt-1 text-[11px] leading-5 text-slate-500">Based on {climate.years}-year {climate.model} historical weather data ({baselinePeriod(climate)}). These are area-level climate estimates, not measurements from a sensor on your farm.</div>
+        {(climate || soil) && hasCapturedLocation && <div className="mt-4 grid grid-cols-2 gap-2">
+          {climate && <>
+            <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Avg annual rainfall</div><div className="mt-1 text-lg font-black">{Math.round(climate.averageAnnualRainfallMm).toLocaleString()} mm</div></div>
+            <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Avg temperature</div><div className="mt-1 text-lg font-black">{climate.averageTemperatureC.toFixed(1)}°C</div></div>
+          </>}
+          {soil && <>
+            <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Kaegro soil pH</div><div className="mt-1 text-lg font-black">{soil.pH == null ? "Not returned" : soil.pH.toFixed(2)}</div></div>
+            <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Kaegro soil type</div><div className="mt-1 text-lg font-black">{soil.soilType || "Not returned"}</div></div>
+          </>}
+          {climate && <div className="col-span-2 mt-1 text-[11px] leading-5 text-slate-500">Based on {climate.years}-year {climate.model} historical weather data ({baselinePeriod(climate)}). Soil pH and soil type are location-derived estimates from the Kaegro Soil API when available. These values support decision-making and do not replace an on-farm soil test.</div>}
+          {!climate && soil && <div className="col-span-2 mt-1 text-[11px] leading-5 text-slate-500">Soil pH and soil type are location-derived estimates from the Kaegro Soil API. These values support decision-making and do not replace an on-farm soil test.</div>}
         </div>}
       </section>
 

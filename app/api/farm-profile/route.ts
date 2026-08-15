@@ -81,6 +81,26 @@ export async function PUT(req: Request) {
     } else {
       const needsClimate = locationChanged || !climateBaseline || averageRainfallMm == null || averageTemperatureC == null;
       const needsSoil = locationChanged || !soilIntelligence || soilIntelligence.schemaVersion !== 2;
+
+      console.info("[FarmCompass][Kaegro] Farm profile soil decision", {
+        userId: auth.user.id,
+        latitude: body.latitude,
+        longitude: body.longitude,
+        locationChanged,
+        hasExistingSoilIntelligence: Boolean(soilIntelligence),
+        existingSchemaVersion: soilIntelligence?.schemaVersion ?? null,
+        needsSoilLookup: needsSoil
+      });
+
+      if (!needsSoil && soilIntelligence) {
+        console.info("[FarmCompass][Kaegro] Reusing cached soil intelligence", {
+          userId: auth.user.id,
+          pH: soilIntelligence.pH ?? null,
+          soilType: soilIntelligence.soilType ?? null,
+          fetchedAt: soilIntelligence.fetchedAt ?? null
+        });
+      }
+
       const [climateResult, soilResult] = await Promise.allSettled([
         needsClimate ? getClimateBaseline(body.latitude, body.longitude) : Promise.resolve(climateBaseline),
         needsSoil ? getSoilIntelligence(body.latitude, body.longitude) : Promise.resolve(soilIntelligence)
@@ -105,12 +125,26 @@ export async function PUT(req: Request) {
       if (needsSoil) {
         if (soilResult.status === "fulfilled" && soilResult.value) {
           soilIntelligence = soilResult.value;
+          console.info("[FarmCompass][Kaegro] Farm profile soil lookup succeeded", {
+            userId: auth.user.id,
+            pH: soilIntelligence.pH ?? null,
+            soilType: soilIntelligence.soilType ?? null,
+            faoClassification: soilIntelligence.faoClassification ?? null,
+            providerLatencySeconds: soilIntelligence.providerLatencySeconds ?? null
+          });
         } else {
           soilIntelligence = null;
           const reason = soilResult.status === "rejected" ? soilResult.reason : null;
           soilWarning = reason instanceof Error
             ? `Soil data could not be refreshed: ${reason.message}`
             : "Soil data could not be refreshed.";
+          console.error("[FarmCompass][Kaegro] Farm profile soil lookup failed", {
+            userId: auth.user.id,
+            latitude: body.latitude,
+            longitude: body.longitude,
+            soilWarning,
+            reason: reason instanceof Error ? { name: reason.name, message: reason.message, stack: reason.stack } : reason
+          });
         }
       }
     }
@@ -148,6 +182,13 @@ export async function PUT(req: Request) {
     );
 
     const profile = await collection.findOne({ userId: auth.user.id });
+    console.info("[FarmCompass][Kaegro] Farm profile persistence result", {
+      userId: auth.user.id,
+      soilIntelligenceSaved: Boolean(profile?.soilIntelligence),
+      pH: profile?.soilIntelligence?.pH ?? null,
+      soilType: profile?.soilIntelligence?.soilType ?? null,
+      soilWarning: soilWarning || null
+    });
     return NextResponse.json({ ok: true, profile: profile ? serialise(profile) : null, climateWarning, soilWarning });
   } catch (error) {
     if (error instanceof z.ZodError) {

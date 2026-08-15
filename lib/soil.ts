@@ -63,7 +63,13 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
   const startedAt = Date.now();
 
   try {
-    console.info("[FarmCompass][Kaegro] Soil lookup started");
+    console.info("[FarmCompass][Kaegro] Soil lookup started", {
+      url: url.toString(),
+      latitude,
+      longitude,
+      timeoutMs: KAEGRO_TIMEOUT_MS
+    });
+
     const response = await fetch(url, {
       method: "GET",
       headers: {
@@ -77,9 +83,12 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
     const contentType = response.headers.get("content-type") || "";
     console.info("[FarmCompass][Kaegro] Soil lookup response", {
       status: response.status,
+      statusText: response.statusText,
       ok: response.ok,
       contentType,
-      elapsedMs: Date.now() - startedAt
+      elapsedMs: Date.now() - startedAt,
+      redirected: response.redirected,
+      finalUrl: response.url
     });
 
     if (!response.ok) {
@@ -93,6 +102,16 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
     }
 
     const data = requireObject(await response.json());
+    console.info("[FarmCompass][Kaegro] Raw soil payload", data);
+    console.info("[FarmCompass][Kaegro] Payload sections", {
+      topLevelKeys: Object.keys(data),
+      hasLocation: Boolean(data.location),
+      hasSoilType: Boolean(data.soil_type),
+      hasPhysical: Boolean(data.physical),
+      hasChemical: Boolean(data.chemical),
+      hasWater: Boolean(data.water),
+      hasMeta: Boolean(data._meta)
+    });
 
     // Exact field mapping from the Kaegro /farms/api/soil response.
     const pH = finiteNumber(data.chemical?.ph_h2o);
@@ -138,9 +157,20 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
     };
 
     console.info("[FarmCompass][Kaegro] Soil lookup parsed", {
+      providerLatitude,
+      providerLongitude,
       pH,
       soilType,
       faoClassification,
+      sandPercent: physical.sandPercent,
+      siltPercent: physical.siltPercent,
+      clayPercent: physical.clayPercent,
+      bulkDensityGcm3: physical.bulkDensityGcm3,
+      organicMatterPercent: chemical.organicMatterPercent,
+      nitrogenGKg: chemical.nitrogenGKg,
+      cecCmolKg: chemical.cecCmolKg,
+      fieldCapacityVolPercent: water.fieldCapacityVolPercent,
+      wiltingPointVolPercent: water.wiltingPointVolPercent,
       providerLatencySeconds,
       elapsedMs: Date.now() - startedAt
     });
@@ -163,10 +193,24 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
     };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      console.error("[FarmCompass][Kaegro] Soil lookup timed out", { elapsedMs: Date.now() - startedAt });
+      console.error("[FarmCompass][Kaegro] Soil lookup timed out", {
+        url: url.toString(),
+        latitude,
+        longitude,
+        timeoutMs: KAEGRO_TIMEOUT_MS,
+        elapsedMs: Date.now() - startedAt
+      });
       throw new Error(`Kaegro soil service did not respond within ${KAEGRO_TIMEOUT_MS / 1000} seconds.`);
     }
-    console.error("[FarmCompass][Kaegro] Soil lookup failed", error);
+    console.error("[FarmCompass][Kaegro] Soil lookup failed", {
+      url: url.toString(),
+      latitude,
+      longitude,
+      elapsedMs: Date.now() - startedAt,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined
+    });
     throw error;
   } finally {
     clearTimeout(timer);
