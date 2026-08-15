@@ -295,8 +295,11 @@ export default function FarmProfileClient({ email }: { email: string }) {
     const baseMessage = profile
       ? "Farm details updated. New recommendations will use these values."
       : "Farm profile created. You can now get a personalised recommendation.";
-    const warnings = [data.climateWarning, data.soilWarning].filter(Boolean).join(" ");
-    setMessage(warnings ? `${baseMessage} ${warnings}` : baseMessage);
+    // Farm-profile persistence succeeds independently of external providers.
+    // Do not append Kaegro provider failures (including Cloudflare HTML/403 pages)
+    // to the farmer-facing success banner. Provider diagnostics remain in logs.
+    const climateWarning = data.climateWarning ? String(data.climateWarning) : "";
+    setMessage(climateWarning ? `${baseMessage} ${climateWarning}` : baseMessage);
   }
 
   if (loading) return <div className="fc-card-flat p-5 text-sm text-slate-500">Loading your farm profile…</div>;

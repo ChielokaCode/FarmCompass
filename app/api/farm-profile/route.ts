@@ -123,9 +123,9 @@ export async function PUT(req: Request) {
           });
         } catch (reason) {
           soilIntelligence = null;
-          soilWarning = reason instanceof Error
-            ? `Soil data could not be refreshed: ${reason.message}`
-            : "Soil data could not be refreshed.";
+          // Keep provider details in server logs only. Do not expose Kaegro/Cloudflare
+          // HTML or low-level provider errors in the farmer-facing response.
+          soilWarning = "Soil intelligence is temporarily unavailable.";
           console.error("[FarmCompass][Kaegro] Farm profile soil lookup failed", {
             userId: auth.user.id,
             latitude: body.latitude,
