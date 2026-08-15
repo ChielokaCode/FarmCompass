@@ -22,6 +22,8 @@ const schema = z.object({
   latitude: optionalNumber.refine(v => v == null || (v >= -90 && v <= 90), "Latitude is invalid"),
   longitude: optionalNumber.refine(v => v == null || (v >= -180 && v <= 180), "Longitude is invalid"),
   locationAccuracyM: optionalNumber.refine(v => v == null || v >= 0, "Location accuracy is invalid"),
+  altitudeM: optionalNumber.refine(v => v == null || (v >= -500 && v <= 10000), "Altitude is invalid"),
+  altitudeAccuracyM: optionalNumber.refine(v => v == null || v >= 0, "Altitude accuracy is invalid"),
   notes: optionalText
 }).superRefine((value, ctx) => {
   const hasLat = value.latitude != null;
@@ -122,6 +124,8 @@ export async function PUT(req: Request) {
           latitude: body.latitude ?? null,
           longitude: body.longitude ?? null,
           locationAccuracyM: body.locationAccuracyM ?? null,
+          altitudeM: body.altitudeM ?? null,
+          altitudeAccuracyM: body.altitudeAccuracyM ?? null,
           locationCapturedAt: locationChanged && body.latitude != null && body.longitude != null
             ? now
             : existing?.locationCapturedAt ?? null,

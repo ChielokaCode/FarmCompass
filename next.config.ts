@@ -10,7 +10,11 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "camera=(self), geolocation=(), microphone=()" }
+          // Do not set a geolocation Permissions-Policy directive here.
+          // Geolocation's browser default allowlist is `self`, which is exactly
+          // what FarmCompass needs. Omitting it also prevents an app-level
+          // policy from overriding a farmer's browser Location permission.
+          { key: "Permissions-Policy", value: "camera=(self), microphone=()" }
         ]
       },
       {

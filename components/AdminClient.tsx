@@ -15,6 +15,8 @@ type Profile = {
   latitude?: number | null;
   longitude?: number | null;
   locationAccuracyM?: number | null;
+  altitudeM?: number | null;
+  altitudeAccuracyM?: number | null;
   averageRainfallMm?: number | null;
   averageTemperatureC?: number | null;
   climateBaseline?: { model?: string; periodStart?: string; periodEnd?: string; years?: number } | null;
@@ -77,6 +79,7 @@ export default function AdminClient() {
             ["Planting month", selected.profile.plantingMonth || "Not recorded"],
             ["Farm GPS", selected.profile.latitude == null || selected.profile.longitude == null ? "Not recorded" : `${selected.profile.latitude.toFixed(5)}, ${selected.profile.longitude.toFixed(5)}`],
             ["GPS accuracy", selected.profile.locationAccuracyM == null ? "Not recorded" : `about ${Math.round(selected.profile.locationAccuracyM)} m`],
+            ["GPS altitude", selected.profile.altitudeM == null ? "Not reported by device" : `${selected.profile.altitudeM.toFixed(1)} m${selected.profile.altitudeAccuracyM == null ? "" : ` (±${Math.round(selected.profile.altitudeAccuracyM)} m)`}`],
             ["Average rainfall", selected.profile.averageRainfallMm == null ? "Not recorded" : `${Math.round(selected.profile.averageRainfallMm).toLocaleString()} mm/year`],
             ["Average temperature", selected.profile.averageTemperatureC == null ? "Not recorded" : `${selected.profile.averageTemperatureC.toFixed(1)} °C`],
             ["Climate source", selected.profile.climateBaseline ? `${selected.profile.climateBaseline.model || "ERA5"} historical baseline` : "Not calculated"],

@@ -54,6 +54,8 @@ export type FarmProfile = {
   latitude?: number | null;
   longitude?: number | null;
   locationAccuracyM?: number | null;
+  altitudeM?: number | null;
+  altitudeAccuracyM?: number | null;
   locationCapturedAt?: Date | string | null;
   averageRainfallMm?: number | null;
   averageTemperatureC?: number | null;
