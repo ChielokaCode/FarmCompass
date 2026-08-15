@@ -1,8 +1,6 @@
 import type { FarmProfile, SoilIntelligence } from "@/types";
 
 const KAEGRO_ENDPOINT = "https://www.kaegro.com/farms/api/soil";
-const KAEGRO_TIMEOUT_MS = 45_000;
-
 type KaegroSoilResponse = {
   location?: {
     lat?: unknown;
@@ -63,12 +61,11 @@ function requireObject(value: unknown): KaegroSoilResponse {
  */
 export async function getSoilIntelligence(latitude: number, longitude: number): Promise<SoilIntelligence> {
   const url = new URL(KAEGRO_ENDPOINT);
-  // Send ordinary decimal coordinates, matching the working Postman request.
-  url.searchParams.set("lat", latitude.toFixed(6));
-  url.searchParams.set("lon", longitude.toFixed(6));
+  // URL query parameters are textual at the HTTP level. Preserve the full numeric value
+  // instead of rounding it with toFixed().
+  url.searchParams.set("lat", String(latitude));
+  url.searchParams.set("lon", String(longitude));
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), KAEGRO_TIMEOUT_MS);
   const startedAt = Date.now();
 
   try {
@@ -76,8 +73,7 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
       method: "GET",
       url: url.toString(),
       latitude,
-      longitude,
-      timeoutMs: KAEGRO_TIMEOUT_MS
+      longitude
     });
 
     console.info("[FarmCompass][Kaegro] Awaiting Kaegro HTTP response...");
@@ -85,12 +81,9 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
     const response = await fetch(url.toString(), {
       method: "GET",
       headers: {
-        Accept: "application/json",
-        "User-Agent": "FarmCompass/1.0"
+        Accept: "*/*",
+        Connection: "keep-alive" // Kaegro does not support HTTP keep-alive, so close the connection after each request.
       },
-      cache: "no-store",
-      redirect: "follow",
-      signal: controller.signal
     });
 
     console.info("[FarmCompass][Kaegro] HTTP response received", {
@@ -222,17 +215,6 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
 
     return soilIntelligence;
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      console.error("[FarmCompass][Kaegro] Soil lookup timed out", {
-        url: url.toString(),
-        latitude,
-        longitude,
-        timeoutMs: KAEGRO_TIMEOUT_MS,
-        elapsedMs: Date.now() - startedAt
-      });
-      throw new Error(`Kaegro soil service did not respond within ${KAEGRO_TIMEOUT_MS / 1000} seconds.`);
-    }
-
     console.error("[FarmCompass][Kaegro] Soil lookup failed", {
       url: url.toString(),
       latitude,
@@ -243,8 +225,6 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
       errorStack: error instanceof Error ? error.stack : undefined
     });
     throw error;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
