@@ -1,7 +1,6 @@
 export type Role = "FARMER" | "ADMIN";
 
 export type UserDoc = {
-  _id?: unknown;
   name: string;
   email: string;
   phone?: string;
@@ -43,7 +42,6 @@ export type SoilIntelligence = {
 };
 
 export type FarmProfile = {
-  _id?: unknown;
   userId: string;
   state: string;
   lga: string;
@@ -68,7 +66,6 @@ export type FarmProfile = {
 };
 
 export type CropRecord = {
-  _id?: unknown;
   slug: string;
   name: string;
   scientificName: string;

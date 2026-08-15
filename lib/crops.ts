@@ -9,7 +9,7 @@ export async function listCrops(): Promise<CropRecord[]> {
   try {
     const db = await getDb();
     const docs = await db.collection<CropRecord>("crops").find({ active: { $ne: false } }).sort({ name: 1 }).toArray();
-    return docs.length ? docs.map((x) => ({ ...x, _id: String(x._id) })) : seed;
+    return docs.length ? docs.map(({ _id, ...crop }) => crop) : seed;
   } catch {
     return seed;
   }
@@ -20,7 +20,10 @@ export async function getCropBySlug(slug: string): Promise<CropRecord | null> {
     try {
       const db = await getDb();
       const doc = await db.collection<CropRecord>("crops").findOne({ slug, active: { $ne: false } });
-      if (doc) return { ...doc, _id: String(doc._id) };
+      if (doc) {
+        const { _id, ...crop } = doc;
+        return crop;
+      }
     } catch {
       // Local seed fallback keeps public crop pages available while the DB is being configured.
     }

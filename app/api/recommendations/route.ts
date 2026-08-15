@@ -41,7 +41,7 @@ export async function POST() {
           needsClimate ? getClimateBaseline(profile.latitude, profile.longitude) : Promise.resolve(profile.climateBaseline),
           needsSoil ? getSoilIntelligence(profile.latitude, profile.longitude) : Promise.resolve(profile.soilIntelligence)
         ]);
-        const update: Record<string, unknown> = { updatedAt: new Date(), updatedBy: "FARMER" };
+        const update: Partial<FarmProfile> = { updatedAt: new Date(), updatedBy: "FARMER" };
         if (needsClimate && climateResult.status === "fulfilled" && climateResult.value) {
           update.climateBaseline = climateResult.value;
           update.averageRainfallMm = climateResult.value.averageAnnualRainfallMm;

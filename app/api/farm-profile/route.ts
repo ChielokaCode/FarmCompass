@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import type { WithId } from "mongodb";
 import { apiUser, serverError } from "@/lib/http";
 import { getDb } from "@/lib/mongodb";
 import { getClimateBaseline } from "@/lib/weather";
@@ -30,8 +31,8 @@ const schema = z.object({
   }
 });
 
-function serialise(profile: FarmProfile & { _id?: unknown }) {
-  return { ...profile, _id: profile._id ? String(profile._id) : undefined };
+function serialise(profile: WithId<FarmProfile>) {
+  return { ...profile, _id: String(profile._id) };
 }
 
 function coordinateChanged(existing: FarmProfile | null, latitude?: number | null, longitude?: number | null) {

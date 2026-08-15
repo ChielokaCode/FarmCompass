@@ -11,9 +11,10 @@ export async function POST(req: Request) {
     const data = schema.parse(await req.json());
     const db = await getDb();
     const email = data.email.toLowerCase();
-    if (await db.collection("users").findOne({ email })) return NextResponse.json({ error: "An account with that email already exists." }, { status: 409 });
+    const users = db.collection<UserDoc>("users");
+    if (await users.findOne({ email })) return NextResponse.json({ error: "An account with that email already exists." }, { status: 409 });
     const doc: UserDoc = { name: data.name.trim(), email, phone: data.phone?.trim(), passwordHash: await bcrypt.hash(data.password, 12), role: "FARMER", onboardingCompleted: false, createdAt: new Date() };
-    const r = await db.collection<UserDoc>("users").insertOne(doc);
+    const r = await users.insertOne(doc);
     const user = { id: String(r.insertedId), name: doc.name, email: doc.email, role: doc.role };
     await signSession(user);
     return NextResponse.json({ user: { ...user, onboardingCompleted: false } });
