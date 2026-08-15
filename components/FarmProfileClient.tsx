@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { useGeolocated } from "react-geolocated";
 import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import AppIcon from "@/components/AppIcon";
@@ -111,6 +112,26 @@ export default function FarmProfileClient({ email }: { email: string }) {
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const locationRequestActive = useRef(false);
+  const handledLocationTimestamp = useRef<number | null>(null);
+
+  const {
+    coords,
+    timestamp: geolocationTimestamp,
+    isGeolocationAvailable,
+    isGeolocationEnabled,
+    positionError,
+    getPosition
+  } = useGeolocated({
+    positionOptions: {
+      enableHighAccuracy: false,
+      maximumAge: 60_000,
+      timeout: 15_000
+    },
+    userDecisionTimeout: 5_000,
+    suppressLocationOnMount: true,
+    watchLocationPermissionChange: true
+  });
 
   useEffect(() => {
     fetch("/api/farm-profile")
@@ -131,34 +152,49 @@ export default function FarmProfileClient({ email }: { email: string }) {
     setForm(prev => ({ ...prev, [key]: value }));
   }
 
+  useEffect(() => {
+    if (!locationRequestActive.current || !coords || geolocationTimestamp == null) return;
+    if (handledLocationTimestamp.current === geolocationTimestamp) return;
+
+    handledLocationTimestamp.current = geolocationTimestamp;
+    locationRequestActive.current = false;
+    setForm(prev => ({
+      ...prev,
+      latitude: Number(coords.latitude.toFixed(6)),
+      longitude: Number(coords.longitude.toFixed(6)),
+      locationAccuracyM: Number(coords.accuracy.toFixed(0))
+    }));
+    setLocating(false);
+    setError("");
+    setMessage("Farm location captured. Save your farm profile to calculate climate, weather and location-based soil information automatically.");
+  }, [coords, geolocationTimestamp]);
+
+  useEffect(() => {
+    if (!locationRequestActive.current || !positionError) return;
+
+    locationRequestActive.current = false;
+    setLocating(false);
+    if (positionError.code === 1) {
+      setError("Location permission was denied. Allow location access in your browser if you want FarmCompass to calculate climate, weather and soil context for this farm.");
+    } else if (positionError.code === 3) {
+      setError("The location request timed out. Try again while you are at the farm and where your phone has a stronger location signal.");
+    } else {
+      setError("FarmCompass could not determine your location. Try again outdoors or where your phone has a stronger location signal.");
+    }
+  }, [positionError]);
+
   function useCurrentLocation() {
     setError("");
     setMessage("");
-    if (!("geolocation" in navigator)) {
-      setError("This browser does not provide device location. You can still save the rest of your farm profile.");
+
+    if (!isGeolocationAvailable) {
+      setError("This browser does not support geolocation. You can still save the rest of your farm profile.");
       return;
     }
+
+    locationRequestActive.current = true;
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      position => {
-        setForm(prev => ({
-          ...prev,
-          latitude: Number(position.coords.latitude.toFixed(6)),
-          longitude: Number(position.coords.longitude.toFixed(6)),
-          locationAccuracyM: Number(position.coords.accuracy.toFixed(0))
-        }));
-        setLocating(false);
-        setMessage("Farm location captured. Save your farm profile to calculate climate, weather and location-based soil information automatically.");
-      },
-      geoError => {
-        setLocating(false);
-        const message = geoError.code === geoError.PERMISSION_DENIED
-          ? "Location permission was denied. Allow location access in your browser if you want FarmCompass to calculate climate, weather and soil context for this farm."
-          : "FarmCompass could not determine your location. Try again outdoors or where your phone has a stronger location signal.";
-        setError(message);
-      },
-      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 }
-    );
+    getPosition();
   }
 
   async function save(e: FormEvent<HTMLFormElement>) {
@@ -244,6 +280,7 @@ export default function FarmProfileClient({ email }: { email: string }) {
         <p className="mt-3 text-sm leading-6 text-slate-600">Use the farm&apos;s location so FarmCompass can calculate long-term rainfall and temperature, show short-term weather, and request location-based soil information such as pH from the Kaegro soil service. This reduces the need to guess environmental values.</p>
 
         <button type="button" onClick={useCurrentLocation} disabled={locating} className="fc-btn fc-btn-secondary mt-4 w-full"><AppIcon name="mapPin"/>{locating ? "Finding farm location…" : hasCapturedLocation ? "Update farm location" : "Use my current location"}</button>
+        {!isGeolocationEnabled && positionError && <p className="mt-2 text-xs font-semibold leading-5 text-amber-700">Location access is currently disabled for FarmCompass. Enable location permission in your browser settings, then try again.</p>}
 
         {hasCapturedLocation ? <div className="mt-4 rounded-2xl bg-slate-50 p-4">
           <div className="flex items-center justify-between gap-3"><div><div className="text-[11px] font-black uppercase tracking-wide text-slate-400">Saved coordinates</div><div className="mt-1 text-sm font-extrabold">{form.latitude?.toFixed(5)}, {form.longitude?.toFixed(5)}</div></div><button type="button" onClick={() => setForm(prev => ({ ...prev, latitude: null, longitude: null, locationAccuracyM: null }))} className="text-xs font-black text-red-600">Remove</button></div>
