@@ -342,11 +342,11 @@ export default function RecommendationClient() {
             <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
               <div className="fc-stat-chip">
                 <span className="text-xs text-slate-500">Soil</span>
-                <div className="mt-1 font-extrabold">{effectiveSoilType || "Unknown"}</div>
+                <div className="mt-1 font-extrabold">{profile.soilIntelligence?.soilType}</div>
               </div>
               <div className="fc-stat-chip">
                 <span className="text-xs text-slate-500">pH</span>
-                <div className="mt-1 font-extrabold">{effectivePH ?? "Unknown"}</div>
+                <div className="mt-1 font-extrabold">{profile.soilIntelligence?.pH}</div>
               </div>
               <div className="fc-stat-chip">
                 <span className="text-xs text-slate-500">Water</span>

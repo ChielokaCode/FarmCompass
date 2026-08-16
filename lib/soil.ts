@@ -158,13 +158,39 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
     const providerLongitude = finiteNumber(data.location?.lon);
     const providerLatencySeconds = finiteNumber(data._meta?.latency_seconds);
 
-    // pH and texture are the two core fields FarmCompass expects from Kaegro.
-    // Fail loudly instead of silently storing an empty soil object.
-    if (pH == null && !soilType) {
-      throw new Error("Kaegro returned JSON, but neither chemical.ph_h2o nor soil_type.texture_class was present.");
+    // pH and texture are the two core fields FarmCompass can use directly for
+    // crop matching, but Kaegro can legitimately return a successful partial
+    // response where those two values are null while another soil property
+    // (for example FAO classification) is still available. Treat that as a
+    // valid provider response rather than a network/service failure.
+    const hasCoreSoilData = pH != null || Boolean(soilType);
+    const hasSupplementarySoilData = Boolean(faoClassification)
+      || physical.sandPercent != null
+      || physical.siltPercent != null
+      || physical.clayPercent != null
+      || physical.bulkDensityGcm3 != null
+      || chemical.organicMatterPercent != null
+      || chemical.nitrogenGKg != null
+      || chemical.cecCmolKg != null
+      || water.fieldCapacityVolPercent != null
+      || water.wiltingPointVolPercent != null;
+    const hasAnySoilData = hasCoreSoilData || hasSupplementarySoilData;
+
+    if (!hasCoreSoilData) {
+      console.warn("[FarmCompass][Kaegro] Core pH/texture not returned; accepting partial response", {
+        pH,
+        soilType,
+        faoClassification,
+        hasSupplementarySoilData,
+        hasAnySoilData,
+        latitude: providerLatitude ?? latitude,
+        longitude: providerLongitude ?? longitude
+      });
     }
 
     const attributes: Record<string, string | number | boolean | null> = {
+      "Core pH/texture available": hasCoreSoilData,
+      "Any soil property available": hasAnySoilData,
       "Texture class": soilType,
       "FAO classification": faoClassification,
       "Sand (%)": physical.sandPercent,
@@ -212,6 +238,9 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
       fieldCapacityVolPercent: soilIntelligence.water.fieldCapacityVolPercent,
       wiltingPointVolPercent: soilIntelligence.water.wiltingPointVolPercent,
       providerLatencySeconds: soilIntelligence.providerLatencySeconds,
+      hasCoreSoilData,
+      hasSupplementarySoilData,
+      hasAnySoilData,
       totalElapsedMs: Date.now() - startedAt
     });
 

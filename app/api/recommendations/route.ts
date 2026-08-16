@@ -118,6 +118,8 @@ export async function POST() {
               pH: soil.pH,
               soilType: soil.soilType,
               faoClassification: soil.faoClassification,
+              hasCoreSoilData: Boolean(soil.attributes?.["Core pH/texture available"]),
+              hasAnySoilData: Boolean(soil.attributes?.["Any soil property available"]),
               providerLatitude: soil.latitude,
               providerLongitude: soil.longitude,
               fetchedAt: soil.fetchedAt

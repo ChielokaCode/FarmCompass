@@ -119,12 +119,16 @@ export async function PUT(req: Request) {
             pH: soilIntelligence.pH ?? null,
             soilType: soilIntelligence.soilType ?? null,
             faoClassification: soilIntelligence.faoClassification ?? null,
+            hasCoreSoilData: Boolean(soilIntelligence.attributes?.["Core pH/texture available"]),
+            hasAnySoilData: Boolean(soilIntelligence.attributes?.["Any soil property available"]),
             providerLatencySeconds: soilIntelligence.providerLatencySeconds ?? null
           });
         } catch (reason) {
           soilIntelligence = null;
-          // Keep provider details in server logs only. Do not expose Kaegro/Cloudflare
-          // HTML or low-level provider errors in the farmer-facing response.
+          // This catch now represents a genuine request/HTTP/JSON/schema failure.
+          // A valid HTTP 200 response with null pH/texture is accepted and saved
+          // as partial soil intelligence by getSoilIntelligence().
+          // Keep low-level provider details in server logs only.
           soilWarning = "Soil intelligence is temporarily unavailable.";
           console.error("[FarmCompass][Kaegro] Farm profile soil lookup failed", {
             userId: auth.user.id,
@@ -193,6 +197,9 @@ export async function PUT(req: Request) {
       soilIntelligenceSaved: Boolean(profile?.soilIntelligence),
       pH: profile?.soilIntelligence?.pH ?? null,
       soilType: profile?.soilIntelligence?.soilType ?? null,
+      faoClassification: profile?.soilIntelligence?.faoClassification ?? null,
+      hasCoreSoilData: Boolean(profile?.soilIntelligence?.attributes?.["Core pH/texture available"]),
+      hasAnySoilData: Boolean(profile?.soilIntelligence?.attributes?.["Any soil property available"]),
       soilWarning: soilWarning || null
     });
     return NextResponse.json({ ok: true, profile: profile ? serialise(profile) : null, climateWarning, soilWarning });

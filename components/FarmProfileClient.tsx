@@ -167,7 +167,7 @@ export default function FarmProfileClient({ email }: { email: string }) {
           return;
         }
         const next = data.profile || null;
-        console.info("[FarmCompass][Kaegro][Client] Loaded farm profile soil intelligence", {
+        console.info("[FarmCompass][FarmProfile][Client] Loaded farm profile soil intelligence", {
           hasSoilIntelligence: Boolean(next?.soilIntelligence),
           soilIntelligence: next?.soilIntelligence ?? null
         });
@@ -276,12 +276,27 @@ export default function FarmProfileClient({ email }: { email: string }) {
     const data = await r.json();
     setSaving(false);
 
-    console.info("[FarmCompass][Kaegro][Client] Farm profile save response", {
+    console.info("[FarmCompass][FarmProfile][Client] Save response", {
       httpStatus: r.status,
       ok: r.ok,
       soilWarning: data.soilWarning || null,
-      hasSoilIntelligence: Boolean(data.profile?.soilIntelligence),
-      soilIntelligence: data.profile?.soilIntelligence ?? null
+      coordinates: {
+        latitude: data.profile?.latitude ?? null,
+        longitude: data.profile?.longitude ?? null
+      },
+      farmerEnteredSoil: {
+        soilType: data.profile?.soilType ?? null,
+        pH: data.profile?.pH ?? null
+      },
+      kaegro: {
+        hasSoilIntelligence: Boolean(data.profile?.soilIntelligence),
+        soilType: data.profile?.soilIntelligence?.soilType ?? null,
+        pH: data.profile?.soilIntelligence?.pH ?? null,
+        faoClassification: data.profile?.soilIntelligence?.faoClassification ?? null,
+        hasCoreSoilData: Boolean(data.profile?.soilIntelligence?.attributes?.["Core pH/texture available"]),
+        hasAnySoilData: Boolean(data.profile?.soilIntelligence?.attributes?.["Any soil property available"]),
+        soilIntelligence: data.profile?.soilIntelligence ?? null
+      }
     });
 
     if (!r.ok) {
@@ -356,7 +371,7 @@ export default function FarmProfileClient({ email }: { email: string }) {
             <div className="fc-stat-chip"><div className="text-[11px] font-bold text-slate-500">Kaegro soil type</div><div className="mt-1 text-lg font-black">{soil.soilType || "Not returned"}</div></div>
           </>}
           {climate && <div className="col-span-2 mt-1 text-[11px] leading-5 text-slate-500">Based on {climate.years}-year {climate.model} historical weather data ({baselinePeriod(climate)}). Soil pH and soil type are location-derived estimates from the Kaegro Soil API when available. These values support decision-making and do not replace an on-farm soil test.</div>}
-          {!climate && soil && <div className="col-span-2 mt-1 text-[11px] leading-5 text-slate-500">Soil pH and soil type are location-derived estimates from the Kaegro Soil API. These values support decision-making and do not replace an on-farm soil test.</div>}
+          {!climate && soil && <div className="col-span-2 mt-1 text-[11px] leading-5 text-slate-500">Soil properties are location-derived estimates from the Kaegro Soil API when available. Some locations may return only part of the soil profile. These values support decision-making and do not replace an on-farm soil test.</div>}
         </div>}
       </section>
 
