@@ -81,9 +81,11 @@ export async function getSoilIntelligence(latitude: number, longitude: number): 
     const response = await fetch(url.toString(), {
       method: "GET",
       headers: {
-        Accept: "*/*",
-        Connection: "keep-alive" // Kaegro does not support HTTP keep-alive, so close the connection after each request.
+        Accept: "application/json",
+        "User-Agent": "FarmCompass/1.0"
       },
+      cache: "no-store",
+      redirect: "follow"
     });
 
     console.info("[FarmCompass][Kaegro] HTTP response received", {

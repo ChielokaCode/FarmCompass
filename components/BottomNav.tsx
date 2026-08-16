@@ -7,6 +7,7 @@ const items: { href: string; label: string; icon: AppIconName; primary?: boolean
   { href: "/dashboard", label: "Home", icon: "home" },
   { href: "/crops", label: "Crops", icon: "leaf" },
   { href: "/recommend", label: "Recommend", icon: "compass", primary: true },
+  { href: "/tasks", label: "Tasks", icon: "tasks" },
   { href: "/assistant", label: "Ask", icon: "sparkles" },
   { href: "/profile", label: "My Farm", icon: "farm" }
 ];

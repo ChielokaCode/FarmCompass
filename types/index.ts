@@ -29,7 +29,6 @@ export type ClimateBaseline = {
   updatedAt: Date | string;
 };
 
-
 export type SoilIntelligence = {
   schemaVersion: 2;
   source: "Kaegro Soil API";
@@ -157,4 +156,64 @@ export type FarmWeatherForecast = {
   advisories: FarmWeatherAdvisory[];
   source: "Open-Meteo Forecast API";
   fetchedAt: string;
+};
+
+export type CropCycle = {
+  userId: string;
+  cropSlug: string;
+  cropName: string;
+  scientificName?: string | null;
+  recommendationScore?: number | null;
+  status: "ACTIVE" | "ARCHIVED";
+  startDate: string;
+  projectedEndDate: string;
+  durationDays: number;
+  generationModel: string;
+  profileSnapshot: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+  archivedAt?: Date | null;
+};
+
+export type FarmTaskSourceSection =
+  | "Farmer tips"
+  | "Fertiliser and nutrition"
+  | "Pests and diseases"
+  | "Varieties"
+  | "Planting guide"
+  | "Harvest and storage";
+
+export type FarmTask = {
+  userId: string;
+  cycleId: string;
+  cropSlug: string;
+  cropName: string;
+  title: string;
+  description: string;
+  scheduledDate: string;
+  windowStart: string;
+  windowEnd: string;
+  dueAt: Date;
+  estimatedMinutes: number;
+  priority: "NORMAL" | "IMPORTANT" | "CRITICAL";
+  sourceSection: FarmTaskSourceSection;
+  status: "PENDING" | "COMPLETED" | "SKIPPED";
+  completedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type InAppNotification = {
+  userId: string;
+  type: "TASK_OVERDUE";
+  key: string;
+  title: string;
+  message: string;
+  href: string;
+  taskId: string;
+  cropSlug: string;
+  readAt?: Date | null;
+  resolvedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
 };

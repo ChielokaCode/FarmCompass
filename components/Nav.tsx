@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import LogoutButton from "@/components/LogoutButton";
 import BottomNav from "@/components/BottomNav";
 import AppIcon from "@/components/AppIcon";
+import NotificationBell from "@/components/NotificationBell";
 
 function Logo() {
   return <Link href="/" className="flex items-center gap-2.5" aria-label="FarmCompass home">
@@ -20,7 +21,7 @@ export default async function Nav() {
       <header className="fc-app-topbar">
         <div className="fc-app-width flex h-16 items-center justify-between px-4">
           <Logo />
-          <Link href="/profile" className="grid h-10 w-10 place-items-center rounded-full border border-emerald-900/10 bg-emerald-50 text-xs font-black text-emerald-800" aria-label="Open my farm profile">{initials || "FC"}</Link>
+          <div className="flex items-center gap-2"><NotificationBell/><Link href="/profile" className="grid h-10 w-10 place-items-center rounded-full border border-emerald-900/10 bg-emerald-50 text-xs font-black text-emerald-800" aria-label="Open my farm profile">{initials || "FC"}</Link></div>
         </div>
       </header>
       <BottomNav />

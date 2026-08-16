@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppIcon from "@/components/AppIcon";
 
@@ -11,31 +11,78 @@ type Profile = {
 };
 type Rec = { crop:{slug:string;name:string;scientificName:string;category:string}; score:number; reasons:string[] };
 
+type ActiveCycle = { cropSlug:string; cropName:string; id:string };
+
 export default function RecommendationClient() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [recs, setRecs] = useState<Rec[]>([]);
+  const [cycles, setCycles] = useState<ActiveCycle[]>([]);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
+  const [selecting, setSelecting] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   async function load() {
     setLoading(true);
-    const r = await fetch("/api/recommendations");
-    const d = await r.json();
+    setError("");
+    const [recommendationResponse, cyclesResponse] = await Promise.all([
+      fetch("/api/recommendations", { cache: "no-store" }),
+      fetch("/api/crop-cycles", { cache: "no-store" })
+    ]);
+    const recommendationData = await recommendationResponse.json();
+    const cyclesData = await cyclesResponse.json();
     setLoading(false);
-    if (r.ok) { setProfile(d.profile || null); setRecs(d.recommendations || []); }
-    else setError(d.error || "Unable to load your recommendation data");
+    if (recommendationResponse.ok) {
+      setProfile(recommendationData.profile || null);
+      setRecs(recommendationData.recommendations || []);
+    } else {
+      setError(recommendationData.error || "Unable to load your recommendation data");
+    }
+    if (cyclesResponse.ok) setCycles(cyclesData.cycles || []);
   }
   useEffect(() => { void load(); }, []);
 
   async function recommend() {
-    setWorking(true); setError("");
+    setWorking(true); setError(""); setNotice("");
     const r = await fetch("/api/recommendations", { method:"POST" });
     const d = await r.json();
     setWorking(false);
     if (!r.ok) { setError(d.error || "Unable to generate recommendation"); return; }
     setProfile(d.profile || profile);
     setRecs(d.recommendations || []);
+  }
+
+  const selectedSlugs = useMemo(() => new Set(cycles.map(cycle => cycle.cropSlug)), [cycles]);
+
+  async function toggleCrop(rec: Rec) {
+    const selected = selectedSlugs.has(rec.crop.slug);
+    setSelecting(rec.crop.slug);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(selected ? `/api/crop-cycles?cropSlug=${encodeURIComponent(rec.crop.slug)}` : "/api/crop-cycles", {
+        method: selected ? "DELETE" : "POST",
+        headers: selected ? undefined : { "Content-Type": "application/json" },
+        body: selected ? undefined : JSON.stringify({ cropSlug: rec.crop.slug, recommendationScore: rec.score })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to update the crop task plan.");
+      if (selected) {
+        setCycles(current => current.filter(cycle => cycle.cropSlug !== rec.crop.slug));
+        setNotice(`${rec.crop.name} task plan removed from your active Tasks.`);
+      } else {
+        const cyclesResponse = await fetch("/api/crop-cycles", { cache: "no-store" });
+        const cyclesData = await cyclesResponse.json();
+        if (cyclesResponse.ok) setCycles(cyclesData.cycles || []);
+        setNotice(`${rec.crop.name} selected. FarmCompass created ${data.taskCount || 0} AI-assisted farm tasks.`);
+      }
+      window.dispatchEvent(new Event("farmcompass:notifications-refresh"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update the crop task plan.");
+    } finally {
+      setSelecting(null);
+    }
   }
 
   if (loading) return <div className="fc-card-flat p-5 text-sm text-slate-500">Loading recommendation workspace…</div>;
@@ -45,6 +92,7 @@ export default function RecommendationClient() {
 
   return <div className="space-y-6">
     {error && <div className="rounded-2xl bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>}
+    {notice && <div className="rounded-2xl bg-emerald-50 p-4 text-sm font-semibold leading-6 text-emerald-800">{notice} <Link href="/tasks" className="font-black underline">Open Tasks</Link></div>}
 
     {!profile ? <section className="fc-card p-5">
       <div className="grid h-12 w-12 place-items-center rounded-2xl bg-amber-50 text-amber-700"><AppIcon name="clock"/></div>
@@ -62,11 +110,22 @@ export default function RecommendationClient() {
 
       {recs.length > 0 && <section>
         <div className="flex items-end justify-between gap-3"><div><div className="fc-page-kicker">Your matches</div><h2 className="mt-1 text-2xl font-black">Top recommended crops</h2></div><span className="text-xs font-bold text-slate-500">{recs.length} results</span></div>
-        <div className="mt-4 space-y-3">{recs.map((r, i) => <article key={r.crop.slug} className="fc-card p-5">
-          <div className="flex items-start gap-4"><div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl font-black ${i === 0 ? "bg-emerald-700 text-white" : "bg-emerald-50 text-emerald-800"}`}>#{i + 1}</div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><h3 className="text-xl font-black">{r.crop.name}</h3><p className="mt-0.5 truncate text-xs italic text-slate-500">{r.crop.scientificName}</p></div><span className="rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-black text-emerald-800">{r.score}%</span></div></div></div>
-          <ul className="mt-4 space-y-2">{r.reasons.slice(0,5).map(reason => <li key={reason} className="flex gap-2 text-sm leading-6 text-slate-600"><span className="mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-emerald-50 text-emerald-700"><AppIcon name="check" className="h-3 w-3"/></span><span>{reason}</span></li>)}</ul>
-          <div className="mt-5 grid grid-cols-2 gap-2"><Link href={`/crops/${r.crop.slug}`} className="fc-btn fc-btn-secondary !min-h-11 !py-2 text-sm">Crop guide</Link><Link href={`/assistant?crop=${r.crop.slug}`} className="fc-btn fc-btn-primary !min-h-11 !py-2 text-sm">Ask about it</Link></div>
-        </article>)}</div>
+        <p className="mt-2 text-xs leading-5 text-slate-500">Select a crop to create an AI-assisted accountability plan in Tasks. Selecting a crop does not change its suitability score.</p>
+        <div className="mt-4 space-y-3">{recs.map((r, i) => {
+          const selected = selectedSlugs.has(r.crop.slug);
+          const busy = selecting === r.crop.slug;
+          return <article key={r.crop.slug} className="fc-card p-5">
+            <div className="flex items-start gap-4"><div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl font-black ${i === 0 ? "bg-emerald-700 text-white" : "bg-emerald-50 text-emerald-800"}`}>#{i + 1}</div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><h3 className="text-xl font-black">{r.crop.name}</h3><p className="mt-0.5 truncate text-xs italic text-slate-500">{r.crop.scientificName}</p></div><span className="rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-black text-emerald-800">{r.score}%</span></div></div></div>
+            <ul className="mt-4 space-y-2">{r.reasons.slice(0,5).map(reason => <li key={reason} className="flex gap-2 text-sm leading-6 text-slate-600"><span className="mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-emerald-50 text-emerald-700"><AppIcon name="check" className="h-3 w-3"/></span><span>{reason}</span></li>)}</ul>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <Link href={`/crops/${r.crop.slug}`} className="fc-btn fc-btn-secondary !min-h-11 !py-2 text-sm">Crop guide</Link>
+              <button type="button" aria-pressed={selected} disabled={busy} onClick={() => void toggleCrop(r)} className={`fc-btn !min-h-11 !py-2 text-sm ${selected ? "fc-btn-secondary" : "fc-btn-primary"}`}>
+                {selected && <AppIcon name="check" className="h-4 w-4"/>}
+                {busy ? "Please wait…" : selected ? `Selected ${r.crop.name}` : `Select ${r.crop.name}`}
+              </button>
+            </div>
+          </article>;
+        })}</div>
       </section>}
     </>}
   </div>;
